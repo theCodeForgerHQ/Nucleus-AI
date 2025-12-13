@@ -1,0 +1,355 @@
+{
+  "name": "Wikipedia Knowledge Ingestion",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        96,
+        -80
+      ],
+      "id": "59fdbf7b-9770-4428-bf3a-c79e2ebd9366",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://en.wikipedia.org/w/api.php",
+        "sendQuery": true,
+        "specifyQuery": "json",
+        "jsonQuery": "={\n  \"action\": \"query\",\n  \"list\": \"categorymembers\",\n  \"cmtitle\": \"{{ $json.title ? $json.title : 'Category:Quantum_computing' }}\",\n  \"cmlimit\": \"max\",\n  \"format\": \"json\"\n}\n",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"User-Agent\": \"Nucleus AI\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        320,
+        -80
+      ],
+      "id": "6df0ddeb-a50b-4ba5-ac67-76388e964e6b",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        752,
+        -80
+      ],
+      "id": "36501200-f711-461a-b2e6-2fbe72a8f170",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "query.categorymembers",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        528,
+        -80
+      ],
+      "id": "75fbe704-f87c-4123-8931-8f91e7b361a2",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f13b3692-f43d-4e80-b5c0-58b0f0bc262d",
+              "leftValue": "={{ $json.ns }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        976,
+        0
+      ],
+      "id": "477f540a-d707-401f-9a32-ab235d1762c3",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "url": "https://en.wikipedia.org/w/api.php",
+        "sendQuery": true,
+        "specifyQuery": "json",
+        "jsonQuery": "={\n  \"action\": \"parse\",\n  \"format\": \"json\",\n  \"prop\": \"text\",\n  \"page\": \"{{$json.title}}\"\n}",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"User-Agent\": \"Nucleus AI\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1216,
+        -16
+      ],
+      "id": "920d8307-7595-447e-9259-517face9d277",
+      "name": "HTTP Request2"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "parse.text['*']",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        -16
+      ],
+      "id": "9f8dd0a3-bac2-4e88-9d99-a2780f0c3934",
+      "name": "Split Out1",
+      "alwaysOutputData": false,
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "2c736916-8fb8-8053-85c0-d1a8912e8bad",
+          "mode": "list",
+          "cachedResultName": "Quantum Wiki",
+          "cachedResultUrl": "https://www.notion.so/2c7369168fb8805385c0d1a8912e8bad"
+        },
+        "title": "=Some",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Content|rich_text",
+              "richText": true,
+              "text": {
+                "text": [
+                  {
+                    "text": "={{ $json.markdown }}",
+                    "annotationUi": {}
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        2128,
+        0
+      ],
+      "id": "d867fae3-f28e-4162-8baf-852f17873608",
+      "name": "Create a database page",
+      "credentials": {
+        "notionApi": {
+          "id": "cq0rfJ7fNBYPP1IY",
+          "name": "Notion"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Function node code\nfunction htmlToMarkdown(html) {\n  \n  // Normalize whitespace\n  html = html.replace(/\\r?\\n|\\r/g, \" \");\n\n  // --- BASIC BLOCKS --------------------------------------------\n\n  // Headings\n  html = html.replace(/<h1[^>]*>(.*?)<\\/h1>/gi, \"# $1\\n\\n\");\n  html = html.replace(/<h2[^>]*>(.*?)<\\/h2>/gi, \"## $1\\n\\n\");\n  html = html.replace(/<h3[^>]*>(.*?)<\\/h3>/gi, \"### $1\\n\\n\");\n  html = html.replace(/<h4[^>]*>(.*?)<\\/h4>/gi, \"#### $1\\n\\n\");\n  html = html.replace(/<h5[^>]*>(.*?)<\\/h5>/gi, \"##### $1\\n\\n\");\n  html = html.replace(/<h6[^>]*>(.*?)<\\/h6>/gi, \"###### $1\\n\\n\");\n\n  // Bold / italic\n  html = html.replace(/<(b|strong)[^>]*>(.*?)<\\/\\1>/gi, \"**$2**\");\n  html = html.replace(/<(i|em)[^>]*>(.*?)<\\/\\1>/gi, \"*$2*\");\n\n  // Links: <a href=\"x\">text</a>\n  html = html.replace(/<a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)<\\/a>/gi, \"[$2]($1)\");\n\n  // Images: <img src=\"x\" alt=\"y\" />\n  html = html.replace(/<img[^>]*src=\"([^\"]+)\"[^>]*alt=\"([^\"]*)\"[^>]*>/gi, \"![$2]($1)\");\n\n  // Line breaks\n  html = html.replace(/<br\\s*\\/?>/gi, \"\\n\");\n\n  // Paragraphs\n  html = html.replace(/<p[^>]*>(.*?)<\\/p>/gi, \"$1\\n\\n\");\n\n  // Lists\n  html = html.replace(/<ul[^>]*>/gi, \"\\n\");\n  html = html.replace(/<\\/ul>/gi, \"\\n\");\n  html = html.replace(/<ol[^>]*>/gi, \"\\n\");\n  html = html.replace(/<\\/ol>/gi, \"\\n\");\n\n  html = html.replace(/<li[^>]*>(.*?)<\\/li>/gi, \"- $1\\n\");\n\n  // Code blocks\n  html = html.replace(/<pre[^>]*><code[^>]*>([\\s\\S]*?)<\\/code><\\/pre>/gi, \"```\\n$1\\n```\\n\\n\");\n  html = html.replace(/<code[^>]*>(.*?)<\\/code>/gi, \"`$1`\");\n\n  // Remove all other tags\n  html = html.replace(/<[^>]+>/g, \"\");\n\n  // Clean extra spaces / lines\n  html = html.replace(/\\n{3,}/g, \"\\n\\n\").trim();\n\n  return html;\n}\n\n// ---- USE EXAMPLE ---------------------------------------------------\n\nconst html = $json[\"parse.text['*']\"]; // or wherever you stored it\n\nreturn {\n  json: {\n    markdown: htmlToMarkdown(html)\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        -16
+      ],
+      "id": "740ff468-9d05-4a60-a389-a6ccd49caafa",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "parse.title",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        144
+      ],
+      "id": "b14199d8-b593-472d-a511-72c4e905a1ae",
+      "name": "Split Out2"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1936,
+        0
+      ],
+      "id": "ac10f874-9907-4a3e-9499-1640ce99db83",
+      "name": "Merge"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request2": {
+      "main": [
+        [
+          {
+            "node": "Split Out1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split Out2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Create a database page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "cacdaee0-5826-4782-afce-ab94a8a56141",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8c7d3f176b3ebf5a517edb3e34d70c29fa08b5f5b0be0532a101e6d7c83692e2"
+  },
+  "id": "x0ZuieMIVm0NXswT",
+  "tags": []
+}
