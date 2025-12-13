@@ -1,15 +1,14 @@
 {
-  "name": "Wikipedia to Confluence Ingestion",
   "nodes": [
     {
       "parameters": {},
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        272,
-        576
+        -144,
+        16
       ],
-      "id": "dcb5c1cc-7dd5-43eb-80cf-c871ef1908d2",
+      "id": "4b367f24-3d11-4c75-b872-57b98209159f",
       "name": "When clicking ‘Test workflow’"
     },
     {
@@ -37,11 +36,11 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1792,
-        576
+        1520,
+        0
       ],
-      "id": "ac36eefe-04b8-4a98-a5c2-0ff795860aec",
-      "name": "Scrape-node"
+      "id": "cda1ecf3-08a0-49de-a968-fdeda613cfa2",
+      "name": "Scrape-node1"
     },
     {
       "parameters": {
@@ -51,11 +50,11 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        944,
-        576
+        672,
+        0
       ],
-      "id": "8311ed46-c3b6-4f33-9468-c446c7357bb9",
-      "name": "Split Out"
+      "id": "5ae895cd-de9c-4e41-97fa-722f26851b16",
+      "name": "Split Out1"
     },
     {
       "parameters": {
@@ -85,11 +84,11 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        1488,
-        592
+        1216,
+        16
       ],
-      "id": "606f0103-a89f-42ae-a8fc-90ef7a3c87db",
-      "name": "If"
+      "id": "f3285d84-e654-4764-af1f-c3786bf7830a",
+      "name": "If1"
     },
     {
       "parameters": {
@@ -105,11 +104,11 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        720,
-        576
+        448,
+        0
       ],
-      "id": "dfed5b6a-9abb-4b77-a7a4-0eddb448fdec",
-      "name": "HTTP Request3"
+      "id": "317a7643-995f-45fd-b1e7-8e6730e403ef",
+      "name": "HTTP Request"
     },
     {
       "parameters": {
@@ -120,11 +119,11 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        1200,
-        576
+        928,
+        0
       ],
-      "id": "b5dea7fb-4962-4ddd-9187-58b351d026a4",
-      "name": "Loop Over Items1"
+      "id": "702a5ec3-6e99-4ca6-aaec-5d1bc3c97dc3",
+      "name": "Loop Over Items"
     },
     {
       "parameters": {
@@ -143,53 +142,24 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        480,
-        576
+        208,
+        0
       ],
-      "id": "c2aa727d-3046-417b-84ba-21714b2f6c61",
-      "name": "Edit Fields2"
+      "id": "1769a6f7-4aae-4efe-ac0c-0a0de6e97ab3",
+      "name": "Edit Fields"
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://nithishaleni.atlassian.net/wiki/rest/api/content",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
-        "sendHeaders": true,
-        "specifyHeaders": "json",
-        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\",\n  \"Accept\": \"application/json\"\n}\n",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"type\": \"page\",\n  \"title\": \"{{ $json.title }}\",\n  \"space\": { \"key\": \"~712020bff0ad6c179f4f0cbfbc21932c37ec0e\" },\n  \"body\": {\n    \"storage\": {\n      \"value\": {{ JSON.stringify($json.content) }},\n      \"representation\": \"storage\"\n    }\n  }\n}\n",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        2496,
-        576
-      ],
-      "id": "ef97ffb9-da7b-49a0-a13e-2f7100d73b1a",
-      "name": "HTTP Request1",
-      "credentials": {
-        "httpBasicAuth": {
-          "id": "q6NGNxiPkM2HG1ab",
-          "name": "Nucleus n8n Confluence"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "let content =  $input.first().json.content || \"\";\ncontent = content.replace(/href=\"\\/wiki\\//g, 'href=\"https://en.wikipedia.org/wiki/');\nreturn {\n  json: {\n    title: $input.first().json.title,\n    content: content\n  }\n};\n"
+        "jsCode": "let content = $input.first().json.content || \"\";\n\n/**\n * 1. Convert Wikipedia math (span.mwe-math-element)\n *    Uses the LaTeX stored in the `alt` attribute\n */\ncontent = content.replace(\n  /<span class=\"mwe-math-element\">[\\s\\S]*?<img[^>]*alt=\"([^\"]+)\"[^>]*>[\\s\\S]*?<\\/span>/g,\n  (_match, latex) => {\n    return `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`;\n  }\n);\n\n/**\n * 2. Convert inline <math> blocks (fallback)\n */\ncontent = content.replace(\n  /<math[^>]*>([\\s\\S]*?)<\\/math>/g,\n  (_match, latex) => {\n    return `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`;\n  }\n);\n\n/**\n * 3. Fix internal Wikipedia links\n */\ncontent = content.replace(\n  /href=\"\\/wiki\\//g,\n  'href=\"https://en.wikipedia.org/wiki/'\n);\n\nreturn {\n  json: {\n    title: $input.first().json.title,\n    content\n  }\n};\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2256,
-        576
+        1920,
+        0
       ],
-      "id": "9382a22c-2191-4304-bff7-886a39a2f877",
-      "name": "Extract-node"
+      "id": "196c73ab-99c3-4b36-95a2-c3416136f7de",
+      "name": "Extract-node1"
     },
     {
       "parameters": {
@@ -212,127 +182,155 @@
       "type": "n8n-nodes-base.html",
       "typeVersion": 1.2,
       "position": [
-        2016,
-        576
+        1744,
+        0
       ],
-      "id": "20865ced-f346-4059-8acd-0d1364ea26dc",
-      "name": "HTML1"
+      "id": "b2d2cada-24c7-427b-96d4-3edc0549a937",
+      "name": "HTML"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nithishaleni.atlassian.net/wiki/rest/api/content",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\",\n  \"Accept\": \"application/json\"\n}\n",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"type\": \"page\",\n  \"title\": \"{{ $json.title }}\",\n  \"space\": { \"key\": \"QCKB\" },\n  \"body\": {\n    \"storage\": {\n      \"value\": {{ JSON.stringify($json.content) }},\n      \"representation\": \"storage\"\n    }\n  }\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2288,
+        -16
+      ],
+      "id": "e2241377-aff3-46ab-9eea-e3eb9a40c746",
+      "name": "Create-Page",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "mfmruA2TLUZqhVTH",
+          "name": "Unnamed credential"
+        }
+      }
     }
   ],
-  "pinData": {},
   "connections": {
     "When clicking ‘Test workflow’": {
       "main": [
         [
           {
-            "node": "Edit Fields2",
+            "node": "Edit Fields",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Scrape-node": {
+    "Scrape-node1": {
       "main": [
         [
           {
-            "node": "HTML1",
+            "node": "HTML",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Split Out": {
+    "Split Out1": {
       "main": [
         [
           {
-            "node": "Loop Over Items1",
+            "node": "Loop Over Items",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "If": {
+    "If1": {
       "main": [
         [
           {
-            "node": "Scrape-node",
+            "node": "Scrape-node1",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "HTTP Request3",
+            "node": "HTTP Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request3": {
+    "HTTP Request": {
       "main": [
         [
           {
-            "node": "Split Out",
+            "node": "Split Out1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Loop Over Items1": {
+    "Loop Over Items": {
       "main": [
         [],
         [
           {
-            "node": "If",
+            "node": "If1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Edit Fields2": {
+    "Edit Fields": {
       "main": [
         [
           {
-            "node": "HTTP Request3",
+            "node": "HTTP Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Extract-node": {
+    "Extract-node1": {
       "main": [
         [
           {
-            "node": "HTTP Request1",
+            "node": "Create-Page",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request1": {
+    "HTML": {
       "main": [
         [
           {
-            "node": "Loop Over Items1",
+            "node": "Extract-node1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTML1": {
+    "Create-Page": {
       "main": [
         [
           {
-            "node": "Extract-node",
+            "node": "Loop Over Items",
             "type": "main",
             "index": 0
           }
@@ -340,15 +338,8 @@
       ]
     }
   },
-  "active": false,
-  "settings": {
-    "executionOrder": "v1"
-  },
-  "versionId": "f994ae68-c919-4cfd-a43b-1945b095d4fa",
+  "pinData": {},
   "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "1bf53cf94ce638efcc32cf49997bb0b44786c39b715e216633cfd6e50cfe76fe"
-  },
-  "id": "nbCEVA05OD64fsmE",
-  "tags": []
+    "instanceId": "796dd70a12c7d05f0cda46f1a00e8fe8587aa17a89ab4faaa6c4f0c6289ae79f"
+  }
 }
