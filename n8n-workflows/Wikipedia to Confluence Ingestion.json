@@ -1,0 +1,354 @@
+{
+  "name": "Wikipedia to Confluence Ingestion",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        272,
+        576
+      ],
+      "id": "dcb5c1cc-7dd5-43eb-80cf-c871ef1908d2",
+      "name": "When clicking ‘Test workflow’"
+    },
+    {
+      "parameters": {
+        "url": "=https://en.wikipedia.org/wiki/{{ $json.title }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.5"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        576
+      ],
+      "id": "ac36eefe-04b8-4a98-a5c2-0ff795860aec",
+      "name": "Scrape-node"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "query.categorymembers",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        944,
+        576
+      ],
+      "id": "8311ed46-c3b6-4f33-9468-c446c7357bb9",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f13b3692-f43d-4e80-b5c0-58b0f0bc262d",
+              "leftValue": "={{ $json.ns }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1488,
+        592
+      ],
+      "id": "606f0103-a89f-42ae-a8fc-90ef7a3c87db",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "url": "https://en.wikipedia.org/w/api.php",
+        "sendQuery": true,
+        "specifyQuery": "json",
+        "jsonQuery": "={\n  \"action\": \"query\",\n  \"list\": \"categorymembers\",\n  \"cmtitle\": \"{{ $json.title ? $json.title : 'Category:'+$json.category }}\",\n  \"cmlimit\": \"max\",\n  \"format\": \"json\"\n}\n",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"User-Agent\": \"Nucleus AI\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        720,
+        576
+      ],
+      "id": "dfed5b6a-9abb-4b77-a7a4-0eddb448fdec",
+      "name": "HTTP Request3"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1200,
+        576
+      ],
+      "id": "b5dea7fb-4962-4ddd-9187-58b351d026a4",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1f19858c-d7f3-4b12-9b41-023c26286f4b",
+              "name": "category",
+              "value": "Quantum_computing",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        480,
+        576
+      ],
+      "id": "c2aa727d-3046-417b-84ba-21714b2f6c61",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nithishaleni.atlassian.net/wiki/rest/api/content",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\",\n  \"Accept\": \"application/json\"\n}\n",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"type\": \"page\",\n  \"title\": \"{{ $json.title }}\",\n  \"space\": { \"key\": \"~712020bff0ad6c179f4f0cbfbc21932c37ec0e\" },\n  \"body\": {\n    \"storage\": {\n      \"value\": {{ JSON.stringify($json.content) }},\n      \"representation\": \"storage\"\n    }\n  }\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2496,
+        576
+      ],
+      "id": "ef97ffb9-da7b-49a0-a13e-2f7100d73b1a",
+      "name": "HTTP Request1",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "q6NGNxiPkM2HG1ab",
+          "name": "Nucleus n8n Confluence"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let content =  $input.first().json.content || \"\";\ncontent = content.replace(/href=\"\\/wiki\\//g, 'href=\"https://en.wikipedia.org/wiki/');\nreturn {\n  json: {\n    title: $input.first().json.title,\n    content: content\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2256,
+        576
+      ],
+      "id": "9382a22c-2191-4304-bff7-886a39a2f877",
+      "name": "Extract-node"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "title",
+              "cssSelector": "#firstHeading"
+            },
+            {
+              "key": "content",
+              "cssSelector": "#mw-content-text",
+              "returnValue": "html"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        2016,
+        576
+      ],
+      "id": "20865ced-f346-4059-8acd-0d1364ea26dc",
+      "name": "HTML1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Test workflow’": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape-node": {
+      "main": [
+        [
+          {
+            "node": "HTML1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Scrape-node",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request3": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract-node": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML1": {
+      "main": [
+        [
+          {
+            "node": "Extract-node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f994ae68-c919-4cfd-a43b-1945b095d4fa",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1bf53cf94ce638efcc32cf49997bb0b44786c39b715e216633cfd6e50cfe76fe"
+  },
+  "id": "nbCEVA05OD64fsmE",
+  "tags": []
+}
