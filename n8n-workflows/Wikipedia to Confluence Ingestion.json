@@ -2,100 +2,49 @@
   "name": "Wikipedia to Confluence Ingestion",
   "nodes": [
     {
-      "parameters": {
-        "fieldToSplitOut": "query.categorymembers",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.splitOut",
-      "typeVersion": 1,
-      "position": [
-        -1744,
-        400
-      ],
-      "id": "2721f78e-6591-40ec-9926-8fb2c37498d0",
-      "name": "Split Out"
-    },
-    {
-      "parameters": {
-        "url": "https://nithishaleni.atlassian.net/wiki/rest/api/content/search",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "cql",
-              "value": "=space=\"{{ $('Configuration').item.json.space_key }}\" AND type=page AND title=\"{{ $json.title }}\""
-            },
-            {
-              "name": "expand",
-              "value": "version,ancestors"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        -1664,
-        864
-      ],
-      "id": "f1ab49e2-9f05-4cdf-8735-61a092f8a184",
-      "name": "Search-Page",
-      "credentials": {
-        "httpBasicAuth": {
-          "id": "1GUIoOXUPikgTUvm",
-          "name": "Confluence n8n"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "method": "DELETE",
-        "url": "=https://nithishaleni.atlassian.net/wiki/rest/api/content/{{ $node[\"Search-Page\"].json.results[0].id }}\n",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
-        "sendHeaders": true,
-        "specifyHeaders": "={\n  \"Accept\": \"application/json\"\n}\n",
-        "headerParameters": {
-          "parameters": [
-            {}
-          ]
-        },
-        "options": {
-          "response": {
-            "response": {
-              "responseFormat": "text"
-            }
-          }
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        -1456,
-        656
-      ],
-      "id": "f3d04bd5-6b06-4498-8cbc-963871e9b325",
-      "name": "Delete-Page",
-      "credentials": {
-        "httpBasicAuth": {
-          "id": "1GUIoOXUPikgTUvm",
-          "name": "Confluence n8n"
-        }
-      }
-    },
-    {
       "parameters": {},
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -2416,
-        400
+        8960,
+        6368
       ],
-      "id": "93bca8a2-136d-427d-932f-2b63de6bd662",
+      "id": "408f1ad0-0157-439d-9a9b-a581984086d7",
       "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9036bd08-87b9-408a-98f1-637310becdce",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        9856,
+        6592
+      ],
+      "id": "3b62825b-5352-4ae8-bc43-c20a189c08f8",
+      "name": "If8"
     },
     {
       "parameters": {
@@ -110,13 +59,13 @@
             {
               "id": "89f871dd-544d-485a-a256-0dcb6c6df076",
               "name": "space_key",
-              "value": "QCKB",
+              "value": "QCKB3",
               "type": "string"
             },
             {
               "id": "10bbbea7-33a4-4bd9-842b-04e9a4c9c76e",
               "name": "ancestor_id",
-              "value": "2424842",
+              "value": "4724990",
               "type": "string"
             }
           ]
@@ -126,10 +75,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -2208,
-        400
+        8768,
+        5936
       ],
-      "id": "1a203aba-5be1-42c9-be5e-658bab3789a4",
+      "id": "1d3548fb-6ff4-442c-ae38-264889ca1388",
       "name": "Configuration"
     },
     {
@@ -146,11 +95,25 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        -1968,
-        400
+        8960,
+        5936
       ],
-      "id": "905ec244-6f72-427c-90d8-33bdda1e9ed5",
+      "id": "09d389d7-a7e5-46ed-922c-e0926958d3ee",
       "name": "Wikipedia Category Pages Fetch"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "query.categorymembers",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        9120,
+        5936
+      ],
+      "id": "bbcd8aff-c82f-488e-addd-7040eb07dc8a",
+      "name": "Split Out"
     },
     {
       "parameters": {
@@ -161,10 +124,10 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        -1488,
-        400
+        9312,
+        5936
       ],
-      "id": "8f0d5cc6-0c9d-4b94-8050-7af1cae71b52",
+      "id": "c7fd5f78-2842-4a9d-99fd-b1631ca8b6d5",
       "name": "Pages Loop"
     },
     {
@@ -195,11 +158,48 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -1248,
-        416
+        9504,
+        5952
       ],
-      "id": "d7f19cba-e470-4941-96ee-42b987bb571f",
+      "id": "8999c109-fe6f-42f9-8f83-13d7b32ad2be",
       "name": "Category Check"
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://nithishaleni.atlassian.net/wiki/rest/api/content/{{ $node[\"Search-Page\"].json.results[0].id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "={\n  \"Accept\": \"application/json\"\n}\n",
+        "headerParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        10032,
+        6400
+      ],
+      "id": "7ce9f0c7-c4e5-4aef-b5b8-3f9de71bf544",
+      "name": "Delete-Page",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "mfmruA2TLUZqhVTH",
+          "name": "Unnamed credential"
+        }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -226,11 +226,12 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -2384,
-        864
+        9328,
+        6144
       ],
-      "id": "666bb7f3-d328-4ad9-84e7-cc55a7daf27d",
-      "name": "Wikipedia Page Fetch"
+      "id": "2c5dc090-122c-454d-9973-febb10430202",
+      "name": "Wikipedia Page Fetch",
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -253,53 +254,60 @@
       "type": "n8n-nodes-base.html",
       "typeVersion": 1.2,
       "position": [
-        -2144,
-        864
+        9552,
+        6384
       ],
-      "id": "463ed556-e9d1-485a-92b0-45dea4ff8880",
+      "id": "327ad872-c54c-4725-94f5-5f1a0eb86b52",
       "name": "HTML Extractor"
     },
     {
       "parameters": {
-        "jsCode": "let content = $input.first().json.content || \"\";\n\ncontent = content.replace(\n  /<span class=\"mwe-math-element\">[\\s\\S]*?<img[^>]*alt=\"([^\"]+)\"[^>]*>[\\s\\S]*?<\\/span>/g,\n  (_match, latex) => {\n    return `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`;\n  }\n);\n\ncontent = content.replace(\n  /<math[^>]*>([\\s\\S]*?)<\\/math>/g,\n  (_match, latex) => {\n    return `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`;\n  }\n);\n\ncontent = content.replace(\n  /href=\"\\/wiki\\//g,\n  'href=\"https://en.wikipedia.org/wiki/'\n);\n\nreturn {\n  json: {\n    title: $input.first().json.title.trim(),\n    content\n  }\n};\n"
+        "jsCode": "let content = $input.first().json.content || \"\";\n\ncontent = content.replace(\n  /<span class=\"mw-editsection\">[\\s\\S]*?<span class=\"mw-editsection-bracket\">\\]<\\/span>\\s*<\\/span>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<span class=\"mwe-math-element\">[\\s\\S]*?<img[^>]*alt=\"([^\"]+)\"[^>]*>[\\s\\S]*?<\\/span>/g,\n  (_match, latex) => `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`\n);\n\ncontent = content.replace(\n  /<math[^>]*>([\\s\\S]*?)<\\/math>/g,\n  (_match, latex) => `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`\n);\n\ncontent = content.replace(\n  /<a[^>]*>([\\s\\S]*?)<\\/a>/g,\n  '$1'\n);\n\ncontent = content.replace( /<div class=\"mw-heading mw-heading2\"><h2 id=\"(?:External_links|See_also|Further_Reading)\"[\\s\\S]*?<\\/ul>/g, '' );\n\ncontent = content.replace(\n  /<div class=\"mw-heading mw-heading2\"><h2 id=\"References\"[\\s\\S]*?<\\/div>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<div class=\"mw-heading mw-heading2\"><h2 id=\"Notes\">[\\s\\S]*?<\\/div>/g,\n  ''\n);\n\ncontent = content.replace( /<div class=\"mw-references-wrap\"[\\s\\S]*?<\\/div>/g, '' );\n\ncontent = content.replace(\n  /<div class=\"mw-references-wrap mw-references-columns\"[\\s\\S]*?<\\/div>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<div role=\"navigation\" class=\"navbox\"[\\s\\S]*?<\\/table><\\/div>/g,\n  ''\n);\n\nreturn {\n  json: {\n    title: $input.first().json.title.trim(),\n    content\n  }\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1888,
-        864
+        9696,
+        6384
       ],
-      "id": "4ad7f3ef-ffa8-4c68-a00e-0cef1c22dd2c",
+      "id": "565ff6e5-326c-49c5-ad51-5e2386b74c29",
       "name": "HTML Cleanup"
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://nithishaleni.atlassian.net/wiki/rest/api/content",
+        "url": "https://nithishaleni.atlassian.net/wiki/rest/api/content/search",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBasicAuth",
-        "sendHeaders": true,
-        "specifyHeaders": "json",
-        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\",\n  \"Accept\": \"application/json\"\n}\n",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"type\": \"page\",\n  \"title\": \"{{ $('HTML Cleanup').item.json.title }}\",\n  \"space\": { \"key\": \"{{ $('Configuration').item.json.space_key }}\" },\n  \"ancestors\": [\n    {\n      \"id\": \"{{ $('Configuration').item.json.ancestor_id }}\"\n    }\n  ],\n  \"body\": {\n    \"storage\": {\n      \"value\": {{ JSON.stringify( $('HTML Cleanup').item.json.content) }},\n      \"representation\": \"storage\"\n    }\n  }\n}\n",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "cql",
+              "value": "=space=\"{{ $('Configuration').item.json.space_key }}\" AND type=page AND title=\"{{ $json.title }}\" "
+            },
+            {
+              "name": "expand",
+              "value": "version,ancestors"
+            }
+          ]
+        },
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "typeVersion": 4.3,
       "position": [
-        -1216,
-        880
+        9696,
+        6592
       ],
-      "id": "0c5108a4-60dd-48c0-b254-6b89206a2654",
-      "name": "Create-Page",
+      "id": "350cb41d-3ed9-4895-9f15-c78c54dfc8e6",
+      "name": "Search-Page",
       "credentials": {
         "httpBasicAuth": {
-          "id": "1GUIoOXUPikgTUvm",
-          "name": "Confluence n8n"
+          "id": "mfmruA2TLUZqhVTH",
+          "name": "Unnamed credential"
         }
-      }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -329,53 +337,718 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -1456,
-        864
+        10464,
+        6608
       ],
-      "id": "5e4a1cb7-a490-4d39-b5af-978497da6c8d",
+      "id": "26ca6141-eb84-44cc-a347-4fcd6021c70a",
       "name": "Page Exists Check"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nithishaleni.atlassian.net/wiki/rest/api/content",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\",\n  \"Accept\": \"application/json\"\n}\n",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"type\": \"page\",\n  \"title\": \"{{ $('HTML Cleanup').item.json.title }}\",\n  \"space\": { \"key\": \"{{ $('Configuration').item.json.space_key }}\" },\n  \"ancestors\": [\n    {\n      \"id\": \"{{ $('Configuration').item.json.ancestor_id }}\"\n    }\n  ],\n  \"body\": {\n    \"storage\": {\n      \"value\": {{ JSON.stringify( $('HTML Cleanup').item.json.content) }},\n      \"representation\": \"storage\"\n    }\n  }\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        10032,
+        6800
+      ],
+      "id": "4f6c1349-5644-49df-8e6f-3e83a147ed8c",
+      "name": "Create-Page",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "mfmruA2TLUZqhVTH",
+          "name": "Unnamed credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f4da1579-4975-42b1-a89b-dd693e4193a8",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        9504,
+        6144
+      ],
+      "id": "09ad77c3-d519-43f3-bad8-6d9cee18c9ee",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "77b18f34-b1a6-4e6b-be78-67c3e59f252c",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        10208,
+        6400
+      ],
+      "id": "4e15c5da-fe91-40b8-8dca-c4ddc077e260",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8dedd27d-b0dd-4e31-b835-1dacc1449da3",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        10192,
+        6800
+      ],
+      "id": "67914004-7fc3-47c3-ba21-bb7c75d95983",
+      "name": "If3"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appotXUpMIoT8SbsB",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblPB9085vKiybQrH",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "success": true,
+            "pageTitle": "{{ $('HTML Cleanup3').item.json.title }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "pageTitle",
+              "displayName": "pageTitle",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "failureNode",
+              "displayName": "failureNode",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "createdAt",
+              "displayName": "createdAt",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        10544,
+        6816
+      ],
+      "id": "f40ab26c-8cbc-4183-8a37-0d8c7211930e",
+      "name": "Insert Row 4",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "LyAPpvjvjI7EIHL9",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appotXUpMIoT8SbsB",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblPB9085vKiybQrH",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "success": false,
+            "Message": "{{ $json.error.message }}",
+            "failureNode": "create-page",
+            "pageTitle": "{{ $('HTML Cleanup3').item.json.title }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "pageTitle",
+              "displayName": "pageTitle",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "failureNode",
+              "displayName": "failureNode",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "createdAt",
+              "displayName": "createdAt",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        10368,
+        6784
+      ],
+      "id": "83bf1095-6950-4f39-aa8c-b00c4349f13a",
+      "name": "Insert Row 5",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "LyAPpvjvjI7EIHL9",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appotXUpMIoT8SbsB",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblPB9085vKiybQrH",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "pageTitle": "={{ $('Category Check').item.json.title }}",
+            "success": false,
+            "failureNode": "page-fetch",
+            "Message": "={{ $json.error.message }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "pageTitle",
+              "displayName": "pageTitle",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "failureNode",
+              "displayName": "failureNode",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "createdAt",
+              "displayName": "createdAt",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        9680,
+        6128
+      ],
+      "id": "0f9f100c-42ca-4db2-82e3-b74523edd084",
+      "name": "Insert Row 1",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "LyAPpvjvjI7EIHL9",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appotXUpMIoT8SbsB",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblPB9085vKiybQrH",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "success": false,
+            "pageTitle": "={{ $('Wikipedia Category Pages Fetch').item.json.query.categorymembers[0].title }}",
+            "failureNode": "Delete-Page",
+            "Message": "={{ $('Search-Page').item.json.error.message }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "pageTitle",
+              "displayName": "pageTitle",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "failureNode",
+              "displayName": "failureNode",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "createdAt",
+              "displayName": "createdAt",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        10384,
+        6384
+      ],
+      "id": "f41d73ad-1356-4bfb-9412-43523936d35f",
+      "name": "Insert Row 2",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "LyAPpvjvjI7EIHL9",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appotXUpMIoT8SbsB",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblPB9085vKiybQrH",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "success": false,
+            "pageTitle": "={{ $json.results[0].title }}",
+            "Message": "={{ $json.results[0].version.message }}",
+            "failureNode": "Search-Page"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "pageTitle",
+              "displayName": "pageTitle",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "failureNode",
+              "displayName": "failureNode",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "createdAt",
+              "displayName": "createdAt",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        10032,
+        6576
+      ],
+      "id": "539eebc0-2729-4811-89e5-b561926fe576",
+      "name": "Insert Row 3",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "LyAPpvjvjI7EIHL9",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
     }
   ],
   "pinData": {},
   "connections": {
-    "Split Out": {
-      "main": [
-        [
-          {
-            "node": "Pages Loop",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Search-Page": {
-      "main": [
-        [
-          {
-            "node": "Page Exists Check",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Delete-Page": {
-      "main": [
-        [
-          {
-            "node": "Create-Page",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Manual Trigger": {
       "main": [
         [
           {
             "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If8": {
+      "main": [
+        [
+          {
+            "node": "Insert Row 3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Page Exists Check",
             "type": "main",
             "index": 0
           }
@@ -398,6 +1071,17 @@
         [
           {
             "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Pages Loop",
             "type": "main",
             "index": 0
           }
@@ -434,11 +1118,22 @@
         ]
       ]
     },
+    "Delete-Page": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Wikipedia Page Fetch": {
       "main": [
         [
           {
-            "node": "HTML Extractor",
+            "node": "If",
             "type": "main",
             "index": 0
           }
@@ -467,11 +1162,11 @@
         ]
       ]
     },
-    "Create-Page": {
+    "Search-Page": {
       "main": [
         [
           {
-            "node": "Pages Loop",
+            "node": "If8",
             "type": "main",
             "index": 0
           }
@@ -495,16 +1190,137 @@
           }
         ]
       ]
+    },
+    "Create-Page": {
+      "main": [
+        [
+          {
+            "node": "If3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Insert Row 1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTML Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Insert Row 2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create-Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If3": {
+      "main": [
+        [
+          {
+            "node": "Insert Row 5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Row 4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Row 4": {
+      "main": [
+        [
+          {
+            "node": "Pages Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Row 5": {
+      "main": [
+        [
+          {
+            "node": "Pages Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Row 1": {
+      "main": [
+        [
+          {
+            "node": "Pages Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Row 2": {
+      "main": [
+        [
+          {
+            "node": "Pages Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Row 3": {
+      "main": [
+        [
+          {
+            "node": "Pages Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "711ffe7d-bd51-42d6-a98e-78d6e29d14fd",
+  "versionId": "faa462c5-42af-4879-b275-cd008be079ed",
   "meta": {
-    "instanceId": "3c129f7335a3b61ee73b0ae13d21baf68f47b606d1c314a0733359bde0465f8d"
+    "templateCredsSetupCompleted": true,
+    "instanceId": "796dd70a12c7d05f0cda46f1a00e8fe8587aa17a89ab4faaa6c4f0c6289ae79f"
   },
-  "id": "M6py9qVaDc5A0lVd",
+  "id": "EkiYhwkOa2KIMAv0",
   "tags": []
 }
