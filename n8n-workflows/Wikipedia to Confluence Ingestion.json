@@ -1314,9 +1314,13 @@
   },
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
   },
-  "versionId": "faa462c5-42af-4879-b275-cd008be079ed",
+  "versionId": "2732e47f-44f6-4561-8416-4893a4fabead",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "796dd70a12c7d05f0cda46f1a00e8fe8587aa17a89ab4faaa6c4f0c6289ae79f"
