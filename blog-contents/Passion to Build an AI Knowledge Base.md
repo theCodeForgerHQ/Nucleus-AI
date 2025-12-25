@@ -1,9 +1,6 @@
 Author: Nithisha
 Date: 12 December, 2025
 
-Description: Today we start building an AI Knowledge Base to help teams organise info, access knowledge easily, and reduce time lost searching. Follow our journey as we learn, build, and create something meaningful together.
-
-Content:
 “Every meaningful journey begins quietly — like today, when the two of us finally agreed it was time to start building something that matters.”
 
 Today marks the first small step of a project that the two of us have been thinking about for a while. Nothing dramatic happened. We simply sat down, talked things through as we always do, and decided it was finally time to start building.
