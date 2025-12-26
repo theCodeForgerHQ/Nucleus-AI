@@ -2,6 +2,10 @@ import os
 import requests
 from requests.auth import HTTPBasicAuth
 from dotenv import load_dotenv
+import re
+import html
+from bs4 import BeautifulSoup
+
 
 load_dotenv()
 
@@ -21,3 +25,11 @@ def get_confluence_page_content(page_id):
     )
     response.raise_for_status()
     return response.json()
+
+def clean_html_to_text(html_text):
+    soup = BeautifulSoup(html_text, "html.parser")
+    text = soup.get_text(separator="\n")
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
