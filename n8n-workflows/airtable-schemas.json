@@ -1,0 +1,77 @@
+{
+  "base": {
+    "name": "Ingestion Logs",
+    "tables": [
+      {
+        "name": "Confluence Ingestion Logs",
+        "primaryField": "ID",
+        "fields": [
+          {
+            "name": "ID",
+            "type": "autonumber",
+            "primary": true
+          },
+          {
+            "name": "createdAt",
+            "type": "createdTime"
+          },
+          {
+            "name": "failureNode",
+            "type": "singleLineText"
+          },
+          {
+            "name": "Message",
+            "type": "longText"
+          },
+          {
+            "name": "pageTitle",
+            "type": "longText"
+          },
+          {
+            "name": "success",
+            "type": "checkbox",
+            "options": {
+              "icon": "check",
+              "color": "greenBright"
+            }
+          }
+        ]
+      },
+      {
+        "name": "Chunk Status Logs",
+        "primaryField": "ID",
+        "fields": [
+          {
+            "name": "ID",
+            "type": "autonumber",
+            "primary": true
+          },
+          {
+            "name": "isStashed",
+            "type": "checkbox",
+            "options": {
+              "icon": "check",
+              "color": "gray"
+            }
+          },
+          {
+            "name": "Last Chunked At",
+            "type": "date",
+            "options": {
+              "timeZone": "client",
+              "dateFormat": "iso"
+            }
+          },
+          {
+            "name": "Page ID",
+            "type": "singleLineText"
+          },
+          {
+            "name": "Page Title",
+            "type": "singleLineText"
+          }
+        ]
+      }
+    ]
+  }
+}
