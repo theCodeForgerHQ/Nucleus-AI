@@ -1,13 +1,12 @@
 from llama_index.core import Document
-from llama_index.core.node_parser import SemanticSplitterNodeParser
-from llama_index.embeddings.gemini import GeminiEmbedding
+from llama_index.core.node_parser import SentenceSplitter
 
 
-def semantic_chunk_text(
+def sentence_chunk_text(
     text: str,
     metadata: dict | None = None,
-    breakpoint_percentile_threshold: int = 95,
-    buffer_size: int = 1,
+    chunk_size: int = 800,
+    chunk_overlap: int = 100,
 ):
 
     document = Document(
@@ -15,14 +14,9 @@ def semantic_chunk_text(
         metadata=metadata or {}
     )
 
-    embed_model = GeminiEmbedding(
-        model="models/embedding-001"  
-    )
-
-    splitter = SemanticSplitterNodeParser(
-        embed_model=embed_model,
-        buffer_size=buffer_size,
-        breakpoint_percentile_threshold=breakpoint_percentile_threshold,
+    splitter = SentenceSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap
     )
 
     nodes = splitter.get_nodes_from_documents([document])
