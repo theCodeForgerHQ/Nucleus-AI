@@ -1,34 +1,28 @@
 from llama_index.core import Document
-from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.node_parser import SemanticSplitterNodeParser
+from llama_index.embeddings.gemini import GeminiEmbedding
 
 
-def chunk_text(
+def semantic_chunk_text(
     text: str,
-    chunk_size: int = 800,
-    chunk_overlap: int = 100,
-    metadata: dict | None = None
+    metadata: dict | None = None,
+    breakpoint_percentile_threshold: int = 95,
+    buffer_size: int = 1,
 ):
-    """
-    Split plain text into semantic chunks using LlamaIndex.
-
-    Args:
-        text (str): Clean plain text to chunk
-        chunk_size (int): Target chunk size in tokens
-        chunk_overlap (int): Overlap between chunks
-        metadata (dict): Optional metadata (page_id, title, etc.)
-
-    Returns:
-        list[dict]: List of chunks with text + metadata
-    """
 
     document = Document(
         text=text,
         metadata=metadata or {}
     )
 
-    splitter = SentenceSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap
+    embed_model = GeminiEmbedding(
+        model="models/embedding-001"  
+    )
+
+    splitter = SemanticSplitterNodeParser(
+        embed_model=embed_model,
+        buffer_size=buffer_size,
+        breakpoint_percentile_threshold=breakpoint_percentile_threshold,
     )
 
     nodes = splitter.get_nodes_from_documents([document])
