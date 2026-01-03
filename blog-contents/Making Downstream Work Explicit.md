@@ -1,55 +1,35 @@
 Tracking Processing State
 
-In the previous iteration, execution was made observable and selective. Change detection was separated from processing, and runs were driven by explicit signals rather than blanket re-execution.
+Detecting that a page has changed identifies which pages may require downstream processing, but it does not indicate whether that processing has already occurred.
 
-That refinement surfaced a quieter problem.
+The system also needs to know whether that page has already been processed downstream, and whether it should be picked up again. Without a clear notion of current state, execution becomes either speculative or redundant.
 
-Knowing that a page changed was not enough. The system also needed to know whether that page had already been processed downstream, and whether it should be picked up again. Execution logs alone could not answer that question reliably.
-
-To address this, a second table was introduced.
-
-Why a Second Table Was Necessary
-
-The original ingestion logs are append-only. Each execution produces records, and those records are never modified. This is intentional and useful for auditability, but it makes them unsuitable for representing current processing state.
-
-Determining whether a page should be picked up again would require scanning multiple rows across runs and interpreting their meaning. That approach does not scale cleanly and introduces ambiguity.
-
-Instead of inferring state, the workflow now records it explicitly.
+Rather than inferring that state indirectly, the workflow records it explicitly.
 
 Representing Processing State Directly
 
-The Chunk Status Logs table exists solely to track whether a page is pending downstream work.
-
-Each page appears once. That record is updated over time as processing progresses. The table does not store execution history or content. It stores only what is necessary to decide whether work remains.
+Processing state is tracked in a dedicated table. The Chunk Status Logs table exists solely to represent whether a page is pending downstream work. Each page has a single record, which is updated as processing progresses.
 
 {
-  "name": "Chunk Status Logs",
-  "primaryField": "ID",
-  "fields": [
-    { "name": "ID", "type": "autonumber", "primary": true },
-    { "name": "isStashed", "type": "checkbox" },
-    { "name": "Last Chunked At", "type": "date" },
-    { "name": "Page ID", "type": "singleLineText" },
-    { "name": "Page Title", "type": "singleLineText" }
-  ]
+"name": "Chunk Status Logs",
+"primaryField": "ID",
+"fields": [
+{ "name": "ID", "type": "autonumber", "primary": true },
+{ "name": "isStashed", "type": "checkbox" },
+{ "name": "Last Chunked At", "type": "date" },
+{ "name": "Page ID", "type": "singleLineText" },
+{ "name": "Page Title", "type": "singleLineText" }
+]
 }
-
-The fields are intentionally minimal. Each one serves a single operational purpose.
 
 How It Is Used
 
-When a page is successfully created or updated during ingestion, it is registered in this table and marked as stashed. This indicates that the page is eligible for downstream processing.
+When a page is created or updated during ingestion, it is registered in this table and marked as stashed. This signals that downstream processing is pending.
 
-Scheduled jobs query only for pages that are currently stashed. Pages that are unchanged or already processed are ignored.
+Scheduled jobs query only for pages currently marked as stashed. Pages that are unchanged or already processed are ignored.
 
-Once processing completes, the record is updated with a timestamp and the stashed flag is cleared. The page is no longer picked up until a future change explicitly marks it again.
+Once processing completes successfully, the record is updated with a timestamp and the stashed flag is cleared. The page is not considered again until a future change explicitly marks it.
 
 What This Enables
 
-This approach separates concerns cleanly.
-
-Execution logs remain a record of what happened. The chunk status table represents what still needs to happen. Each serves a distinct role.
-
-As a result, downstream processing becomes targeted and predictable. No work is inferred. No pages are processed unnecessarily. State is explicit and externally inspectable.
-
-This addition does not introduce new behaviour. It makes existing behaviour deliberate.
+Processing becomes deliberate rather than inferred. Only pages that are explicitly marked are picked up. Unchanged content is never revisited. State remains visible, inspectable, and easy to reason about.
