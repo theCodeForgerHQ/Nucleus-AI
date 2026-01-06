@@ -3,6 +3,7 @@ import re
 import html
 import hashlib
 import requests
+import subprocess
 from typing import List, Dict
 from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
@@ -22,21 +23,61 @@ API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN")
 AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
 HEADERS = {"Accept": "application/json"}
 
-def get_confluence_page_content(page_id: str) -> dict:
+def get_confluence_page_content(page_id: str) -> str:
     url = f"{BASE_URL}/rest/api/content/{page_id}"
     params = {"expand": "body.storage"}
     resp = requests.get(url, headers=HEADERS, params=params, auth=AUTH)
     resp.raise_for_status()
-    return resp.json()
+    return resp.json()['body']['storage']['value']
+
+from bs4 import BeautifulSoup
+import subprocess
+import re
+
+def extract_mathjax_latex(html_text: str) -> str:
+    soup = BeautifulSoup(html_text, "html.parser")
+
+    for sem in soup.find_all("semantics"):
+        ann = sem.find("annotation", {"encoding": "application/x-tex"})
+        if ann and ann.text:
+            latex = ann.text.strip()
+
+            # Remove outer braces if present
+            if latex.startswith("{") and latex.endswith("}"):
+                latex = latex[1:-1]
+
+            sem.replace_with(f"${latex}$")
+
+    return str(soup)
+
 
 def confluence_html_to_markdown(html_text: str) -> str:
-    soup = BeautifulSoup(html_text, "html.parser")
-    for tag in soup(["script", "style"]):
-        tag.decompose()
-    markdown = md(str(soup), heading_style="ATX")
-    markdown = html.unescape(markdown)
-    markdown = re.sub(r"\n{3,}", "\n\n", markdown)
-    return markdown.strip()
+    cleaned_html = extract_mathjax_latex(html_text)
+
+    result = subprocess.run(
+        [
+            "pandoc",
+            "--from=html",
+            "--to=markdown+tex_math_dollars",
+        ],
+        input=cleaned_html,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    return result.stdout.strip()
+
+# def confluence_html_to_markdown(html_text: str) -> str:
+#     soup = BeautifulSoup(html_text, "html.parser")
+#     for tag in soup(["script", "style"]):
+#         tag.decompose()
+#     markdown = md(str(soup), heading_style="ATX")
+#     markdown = html.unescape(markdown)
+#     markdown = re.sub(r"\n{3,}", "\n\n", markdown)
+#     return markdown.strip()
+
+print(confluence_html_to_markdown(get_confluence_page_content("1605763")))
 
 _NODE_PARSER = MarkdownNodeParser(
     include_metadata=True,
@@ -45,12 +86,10 @@ _NODE_PARSER = MarkdownNodeParser(
 
 def build_chunk_id(page_id: str, header_path: str, chunk_text: str) -> str:
     base = f"{page_id}:{header_path}:{hash_text(chunk_text)}"
-    return hashlib.sha256(base.encode("utf-8")).hexdigest()
+    return hash_text(base)
 
 def chunk_page_structurally(page_id: str) -> List[Dict]:
-    page = get_confluence_page_content(page_id)
-    html_content = page["body"]["storage"]["value"]
-    markdown_text = confluence_html_to_markdown(html_content)
+    markdown_text = confluence_html_to_markdown(get_confluence_page_content(page_id))
     doc = Document(text=markdown_text, metadata={"page_id": page_id})
     nodes = _NODE_PARSER.get_nodes_from_documents([doc])
     chunks = []

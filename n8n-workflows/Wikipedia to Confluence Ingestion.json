@@ -9,7 +9,7 @@
         192,
         432
       ],
-      "id": "bc7038cf-319d-40d6-87d8-5d73c5bba836",
+      "id": "543531f7-2da0-471a-88dd-532798636eb4",
       "name": "Manual Trigger"
     },
     {
@@ -19,7 +19,7 @@
             {
               "id": "1f19858c-d7f3-4b12-9b41-023c26286f4b",
               "name": "category",
-              "value": "Quantum_computing",
+              "value": "Alphabet Inc.",
               "type": "string"
             },
             {
@@ -31,7 +31,7 @@
             {
               "id": "10bbbea7-33a4-4bd9-842b-04e9a4c9c76e",
               "name": "ancestor_id",
-              "value": "98306",
+              "value": "3309569",
               "type": "string"
             }
           ]
@@ -44,7 +44,7 @@
         0,
         0
       ],
-      "id": "8b33a0ca-eabc-47fc-85cd-38ee4abaaad0",
+      "id": "3392a328-e9dc-4f04-bc07-13bb104d0887",
       "name": "Configuration"
     },
     {
@@ -52,7 +52,7 @@
         "url": "https://en.wikipedia.org/w/api.php",
         "sendQuery": true,
         "specifyQuery": "json",
-        "jsonQuery": "={\n  \"action\": \"query\",\n  \"list\": \"categorymembers\",\n  \"cmtitle\": \"{{ $json.title ? $json.title : 'Category:'+$json.category }}\",\n  \"cmlimit\": \"max\",\n  \"format\": \"json\"\n}\n",
+        "jsonQuery": "={\n  \"action\": \"query\",\n  \"list\": \"categorymembers\",\n  \"cmtitle\": \"{{ $('Pages Loop').item.json.title ? $('Pages Loop').item.json.title : 'Category:' + $json.category }}\",\n  \"cmlimit\": \"max\",\n  \"format\": \"json\"\n}\n",
         "sendHeaders": true,
         "specifyHeaders": "json",
         "jsonHeaders": "{\n  \"User-Agent\": \"Nucleus AI\"\n}\n",
@@ -64,7 +64,7 @@
         192,
         0
       ],
-      "id": "e8735ef8-36c6-466b-ba97-47d9f264ad9d",
+      "id": "ec5495a2-deae-4573-b635-9e7ec316e22f",
       "name": "Wikipedia Category Pages Fetch"
     },
     {
@@ -78,7 +78,7 @@
         352,
         0
       ],
-      "id": "88c49738-c863-4dfc-b2c5-9db9158ff6e4",
+      "id": "c4e48d08-cd08-42a9-a858-3ffd360c5d82",
       "name": "Split Out"
     },
     {
@@ -93,7 +93,7 @@
         544,
         0
       ],
-      "id": "ea42cb5e-3b32-4df5-a06c-0f05b30f4ca9",
+      "id": "a8001493-42ca-47f3-a5c0-ba4c11dcead3",
       "name": "Pages Loop"
     },
     {
@@ -127,7 +127,7 @@
         736,
         16
       ],
-      "id": "00333564-4352-4124-b2c0-6aa8a7f66d30",
+      "id": "93840934-50fa-4fca-9061-486da77a78e6",
       "name": "Category Check"
     },
     {
@@ -153,12 +153,12 @@
         1264,
         464
       ],
-      "id": "36c09a16-0067-4a98-9a39-8cbfd5491570",
+      "id": "a27981a9-b38e-4d69-af68-1f25ad30ba87",
       "name": "Delete-Page",
       "credentials": {
         "httpBasicAuth": {
-          "id": "75H6OU6O4PkznPvZ",
-          "name": "n8n Confluence"
+          "id": "IYLWUyJYQ1ASF9V0",
+          "name": "Unnamed credential"
         }
       },
       "onError": "continueRegularOutput"
@@ -191,7 +191,7 @@
         560,
         208
       ],
-      "id": "284242ae-1425-44ae-8059-a533b7346c04",
+      "id": "cb531827-52a5-4004-b0ac-0eb7609fd4a1",
       "name": "Wikipedia Page Fetch",
       "onError": "continueRegularOutput"
     },
@@ -219,12 +219,12 @@
         784,
         448
       ],
-      "id": "c2b4ef2f-aeb4-490f-96b2-950c4a522e53",
+      "id": "127411e6-85db-4a93-8460-4cdd9fe90660",
       "name": "HTML Extractor"
     },
     {
       "parameters": {
-        "jsCode": "let content = $input.first().json.content || \"\";\n\ncontent = content.replace(\n  /<span class=\"mw-editsection\">[\\s\\S]*?<span class=\"mw-editsection-bracket\">\\]<\\/span>\\s*<\\/span>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<span class=\"mwe-math-element\">[\\s\\S]*?<img[^>]*alt=\"([^\"]+)\"[^>]*>[\\s\\S]*?<\\/span>/g,\n  (_match, latex) => `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`\n);\n\ncontent = content.replace(\n  /<math[^>]*>([\\s\\S]*?)<\\/math>/g,\n  (_match, latex) => `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`\n);\n\ncontent = content.replace(\n  /<a[^>]*>([\\s\\S]*?)<\\/a>/g,\n  '$1'\n);\n\ncontent = content.replace( /<div class=\"mw-heading mw-heading2\"><h2 id=\"(?:External_links|See_also|Further_Reading)\"[\\s\\S]*?<\\/ul>/g, '' );\n\ncontent = content.replace(\n  /<div class=\"mw-heading mw-heading2\"><h2 id=\"References\"[\\s\\S]*?<\\/div>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<div class=\"mw-heading mw-heading2\"><h2 id=\"Notes\">[\\s\\S]*?<\\/div>/g,\n  ''\n);\n\ncontent = content.replace( /<div class=\"mw-references-wrap\"[\\s\\S]*?<\\/div>/g, '' );\n\ncontent = content.replace(\n  /<div class=\"mw-references-wrap mw-references-columns\"[\\s\\S]*?<\\/div>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<div role=\"navigation\" class=\"navbox\"[\\s\\S]*?<\\/table><\\/div>/g,\n  ''\n);\n\nreturn {\n  json: {\n    title: $input.first().json.title.trim(),\n    content\n  }\n};"
+        "jsCode": "let content = $input.first().json.content || \"\";\n\ncontent = content.replace(\n  /<span class=\"mw-editsection\">[\\s\\S]*?<span class=\"mw-editsection-bracket\">\\]<\\/span>\\s*<\\/span>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<sup[\\s\\S]*?>[\\s\\S]*?<\\/sup>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<span class=\"mwe-math-element\">[\\s\\S]*?<img[^>]*alt=\"([^\"]+)\"[^>]*>[\\s\\S]*?<\\/span>/g,\n  (_match, latex) => `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`\n);\n\ncontent = content.replace(\n  /<math[^>]*>([\\s\\S]*?)<\\/math>/g,\n  (_match, latex) => `\n<ac:structured-macro ac:name=\"math\">\n  <ac:plain-text-body><![CDATA[\n${latex}\n  ]]></ac:plain-text-body>\n</ac:structured-macro>`\n);\n\ncontent = content.replace(\n  /<a[^>]*>([\\s\\S]*?)<\\/a>/g,\n  '$1'\n);\n\ncontent = content.replace( /<div class=\"mw-heading mw-heading2\"><h2 id=\"(?:External_links|See_also|Further_Reading)\"[\\s\\S]*?<\\/ul>/g, '' );\n\ncontent = content.replace(\n  /<div class=\"mw-heading mw-heading2\"><h2 id=\"References\"[\\s\\S]*?<\\/div>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<div class=\"mw-heading mw-heading2\"><h2 id=\"Notes\">[\\s\\S]*?<\\/div>/g,\n  ''\n);\n\ncontent = content.replace( /<div class=\"mw-references-wrap\"[\\s\\S]*?<\\/div>/g, '' );\n\ncontent = content.replace(\n  /<div class=\"mw-references-wrap mw-references-columns\"[\\s\\S]*?<\\/div>/g,\n  ''\n);\n\ncontent = content.replace(\n  /<div role=\"navigation\" class=\"navbox\"[\\s\\S]*?<\\/table><\\/div>/g,\n  ''\n);\n\nreturn {\n  json: {\n    title: $input.first().json.title.trim(),\n    content\n  }\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -232,7 +232,7 @@
         928,
         448
       ],
-      "id": "9dd63031-29d8-4293-b088-b15ceba1e843",
+      "id": "236a3eea-d0e2-4221-bd7c-74911bfe1756",
       "name": "HTML Cleanup"
     },
     {
@@ -261,12 +261,12 @@
         928,
         656
       ],
-      "id": "6fc9a716-26ee-475e-85c5-f0e7f3a323c2",
+      "id": "f9a87675-5f52-4e40-afa5-cfec10b341cc",
       "name": "Search-Page",
       "credentials": {
         "httpBasicAuth": {
-          "id": "75H6OU6O4PkznPvZ",
-          "name": "n8n Confluence"
+          "id": "IYLWUyJYQ1ASF9V0",
+          "name": "Unnamed credential"
         }
       },
       "onError": "continueRegularOutput"
@@ -302,7 +302,7 @@
         1696,
         672
       ],
-      "id": "759eb542-9c4b-48bb-bc2d-6c9de1d8cbe6",
+      "id": "fa585bbb-79c7-41d3-a868-8929648cf137",
       "name": "Page Exists Check"
     },
     {
@@ -325,12 +325,12 @@
         1264,
         864
       ],
-      "id": "d915ee91-33ba-4fcd-962f-be91601bf3a4",
+      "id": "cfa909ee-73df-45b5-86b3-6febb3f3081b",
       "name": "Create-Page",
       "credentials": {
         "httpBasicAuth": {
-          "id": "75H6OU6O4PkznPvZ",
-          "name": "n8n Confluence"
+          "id": "IYLWUyJYQ1ASF9V0",
+          "name": "Unnamed credential"
         }
       },
       "onError": "continueRegularOutput"
@@ -366,7 +366,7 @@
         736,
         208
       ],
-      "id": "9ce48d49-8e11-44f6-8b0e-1cb79c5d1ee6",
+      "id": "11021505-71a5-4438-9eb6-65cfd827d4b5",
       "name": "If"
     },
     {
@@ -400,7 +400,7 @@
         1440,
         464
       ],
-      "id": "3d4692f9-a9b2-43eb-a42a-fcf39016a2de",
+      "id": "69c572d9-ab53-4b97-9b19-8204739b5aa4",
       "name": "If2"
     },
     {
@@ -434,7 +434,7 @@
         1424,
         864
       ],
-      "id": "ffedad04-1d2e-4e93-b45a-9fedccf682f2",
+      "id": "c1e92f69-5e2e-49ed-ba75-a8fa4241b51e",
       "name": "If3"
     },
     {
@@ -536,11 +536,11 @@
         1776,
         880
       ],
-      "id": "fa1f53eb-c9e2-4f9e-aaf3-1f682f62f2e8",
+      "id": "ed76088d-5bf3-42d5-afe4-42ad07247908",
       "name": "Insert Row 4",
       "credentials": {
         "airtableTokenApi": {
-          "id": "USFFTGza1jV3lmUO",
+          "id": "NoPDSrlg2rUM44bG",
           "name": "Airtable Personal Access Token account"
         }
       }
@@ -646,11 +646,11 @@
         1600,
         848
       ],
-      "id": "d5e86170-a17d-4845-8645-b8b413a70699",
+      "id": "7f0bcaa8-562b-46bb-99fe-7fb88b2f3e15",
       "name": "Insert Row 5",
       "credentials": {
         "airtableTokenApi": {
-          "id": "USFFTGza1jV3lmUO",
+          "id": "NoPDSrlg2rUM44bG",
           "name": "Airtable Personal Access Token account"
         }
       }
@@ -756,11 +756,11 @@
         912,
         192
       ],
-      "id": "1ad958bc-8a97-4e5c-817e-3564017d1741",
+      "id": "1173e917-34c3-4496-ac6e-4ece38f8289c",
       "name": "Insert Row 1",
       "credentials": {
         "airtableTokenApi": {
-          "id": "USFFTGza1jV3lmUO",
+          "id": "NoPDSrlg2rUM44bG",
           "name": "Airtable Personal Access Token account"
         }
       }
@@ -866,11 +866,11 @@
         1616,
         448
       ],
-      "id": "bac13bfb-01dc-4c6a-bfb8-d5fdaf37d1fa",
+      "id": "3eac9caa-ec37-4364-a339-cc4bf255529d",
       "name": "Insert Row 2",
       "credentials": {
         "airtableTokenApi": {
-          "id": "USFFTGza1jV3lmUO",
+          "id": "NoPDSrlg2rUM44bG",
           "name": "Airtable Personal Access Token account"
         }
       }
@@ -976,11 +976,11 @@
         1264,
         640
       ],
-      "id": "5c20a6a7-ede0-4b8a-8639-16b7b743efb6",
+      "id": "386ec386-e34d-4966-89b1-646cfd81abcf",
       "name": "Insert Row 3",
       "credentials": {
         "airtableTokenApi": {
-          "id": "USFFTGza1jV3lmUO",
+          "id": "NoPDSrlg2rUM44bG",
           "name": "Airtable Personal Access Token account"
         }
       }
@@ -1016,7 +1016,7 @@
         1088,
         656
       ],
-      "id": "6803693d-d256-406f-ba1a-66d3991aa2e7",
+      "id": "99f2cf96-17a6-4ad8-b0c3-f05d1650f9b6",
       "name": "If1"
     },
     {
@@ -1112,11 +1112,11 @@
         1936,
         880
       ],
-      "id": "485e6e6b-6456-4ee1-8922-1f5507857563",
+      "id": "17b1dca8-517c-4826-a09c-1b4eab56d506",
       "name": "Insert Row 6",
       "credentials": {
         "airtableTokenApi": {
-          "id": "USFFTGza1jV3lmUO",
+          "id": "NoPDSrlg2rUM44bG",
           "name": "Airtable Personal Access Token account"
         }
       }
@@ -1423,13 +1423,14 @@
   },
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "availableInMCP": false
   },
-  "versionId": "0842a61c-6ad9-42ae-a3b9-1f99dcbeabeb",
+  "versionId": "106358d6-0feb-4cd6-a791-080195bcb826",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "2c8b270d09719b44ee02cb14e84cdaae07e45509d54296aa4f0c36f3ff04d4ff"
+    "instanceId": "85746769f9940529927359b39a26eaa05b4d41a11d888644efe2c27e2cbd1833"
   },
-  "id": "yuslSW1OgwZ6Jisn",
+  "id": "1ZwUIgkYzCP2cOm9",
   "tags": []
 }
