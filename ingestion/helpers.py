@@ -23,3 +23,16 @@ def get_confluence_page_content(page_id):
     resp = requests.get(url, headers=CONFLUENCE_HEADERS, params=params, auth=CONFLUENCE_AUTH)
     resp.raise_for_status()
     return resp.json()['body']['storage']['value']
+
+def html_to_markdown_base(html):
+    soup = BeautifulSoup(html, "html.parser")
+
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+
+    for tag in soup(["table", "img"]):
+        tag.decompose()
+
+    body = soup.body or soup
+    markdown = md(str(body), heading_style="ATX")
+    return markdown.strip()
