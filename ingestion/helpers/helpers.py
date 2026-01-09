@@ -85,6 +85,9 @@ def extract_tables(html):
     tables_out = []
 
     for table in soup.find_all("table"):
+        heading = table.find_previous(["h1", "h2", "h3", "h4", "h5", "h6"])
+        section_heading = md("".join(str(x) for x in heading.contents)).strip() if heading else None
+
         classes = table.get("class", [])
         if any(c in classes for c in ["sidebar", "nomobile", "nowraplinks"]):
             continue
