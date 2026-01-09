@@ -160,5 +160,3 @@ def html_to_markdown(html):
     body = soup.body or soup
     markdown = md(str(body), heading_style="ATX")
     return markdown.strip()
-
-print(extract_tables(get_confluence_page_content("4882469")))
