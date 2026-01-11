@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  page-indexer:
+    build: ./page-indexer
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+
+  page-indexer-trigger:
+    build: ./page-indexer-trigger
+    env_file:
+      - .env
+    environment:
+      PAGE_INDEXER_URL: http://page-indexer:8080/
+    profiles:
+      - trigger
