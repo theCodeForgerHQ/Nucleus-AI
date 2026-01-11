@@ -39,25 +39,27 @@ def fetch_confluence_page(page_id):
     return title, created_at
 
 def build_source_url(page_id):
-    return f"{CONFLUENCE_BASE_URL}/pages/{page_id}"
+    url = f"{CONFLUENCE_BASE_URL}/pages/{page_id}"
+    return url
 
-def upsert_neon(page_id, source_url, created_at):
+def upsert_neon(page_id, title, source_url, created_at):
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO pages (page_id, source_url, created_at, is_stashed)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO kb_pages (page_id, page_title, source_url, created_at, is_stashed)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (page_id) DO NOTHING
             """,
-            (page_id, source_url, created_at, False)
+            (page_id, title, source_url, created_at, True)
         )
 
 def upsert_pinecone(page_id, title):
-    pc_index.upsert(
+    pc_index.upsert_records(
+        namespace="default",
         records=[
             {
-                "id": f"page:{page_id}",
-                "text": title
+                "_id": f"page:{page_id}",
+                "page_title": title
             }
         ]
     )
@@ -67,10 +69,14 @@ async def page_created(req: Request):
     try:
         body = await req.json()
         page_id = body["page_id"]
+
         title, created_at = fetch_confluence_page(page_id)
         source_url = build_source_url(page_id)
-        upsert_neon(page_id, source_url, created_at)
+
+        upsert_neon(page_id, title, source_url, created_at)
         upsert_pinecone(page_id, title)
+
         return {"page_id": page_id}
-    except Exception:
+
+    except Exception as e:
         raise HTTPException(status_code=500)
