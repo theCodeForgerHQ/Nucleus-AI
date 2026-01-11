@@ -9,7 +9,7 @@
         192,
         432
       ],
-      "id": "543531f7-2da0-471a-88dd-532798636eb4",
+      "id": "34a0d7a4-6f80-4373-b603-3842cd5abc6e",
       "name": "Manual Trigger"
     },
     {
@@ -44,7 +44,7 @@
         0,
         0
       ],
-      "id": "3392a328-e9dc-4f04-bc07-13bb104d0887",
+      "id": "88b543af-7047-4236-b391-e2ec869fc21b",
       "name": "Configuration"
     },
     {
@@ -64,7 +64,7 @@
         192,
         0
       ],
-      "id": "ec5495a2-deae-4573-b635-9e7ec316e22f",
+      "id": "61e99628-97f2-4f84-918c-1d75835067b3",
       "name": "Wikipedia Category Pages Fetch"
     },
     {
@@ -78,7 +78,7 @@
         352,
         0
       ],
-      "id": "c4e48d08-cd08-42a9-a858-3ffd360c5d82",
+      "id": "fa7adff5-5197-4fe3-9037-d5603830897f",
       "name": "Split Out"
     },
     {
@@ -93,7 +93,7 @@
         544,
         0
       ],
-      "id": "a8001493-42ca-47f3-a5c0-ba4c11dcead3",
+      "id": "62297f37-a472-4ae0-995a-843798d67744",
       "name": "Pages Loop"
     },
     {
@@ -127,7 +127,7 @@
         736,
         16
       ],
-      "id": "93840934-50fa-4fca-9061-486da77a78e6",
+      "id": "58dc14d1-5173-4fdf-9604-5ab1856ef75a",
       "name": "Category Check"
     },
     {
@@ -153,7 +153,7 @@
         1264,
         464
       ],
-      "id": "a27981a9-b38e-4d69-af68-1f25ad30ba87",
+      "id": "768db88d-040e-4f55-af47-80c31d85e14c",
       "name": "Delete-Page",
       "credentials": {
         "httpBasicAuth": {
@@ -191,7 +191,7 @@
         560,
         208
       ],
-      "id": "cb531827-52a5-4004-b0ac-0eb7609fd4a1",
+      "id": "d19efaca-849f-4824-b40a-f697b273ab4c",
       "name": "Wikipedia Page Fetch",
       "onError": "continueRegularOutput"
     },
@@ -219,7 +219,7 @@
         784,
         448
       ],
-      "id": "127411e6-85db-4a93-8460-4cdd9fe90660",
+      "id": "2e4cd0bc-b144-408c-b03a-564c4ec88fd6",
       "name": "HTML Extractor"
     },
     {
@@ -232,7 +232,7 @@
         928,
         448
       ],
-      "id": "236a3eea-d0e2-4221-bd7c-74911bfe1756",
+      "id": "e39f5927-c34e-4723-b921-56b260815730",
       "name": "HTML Cleanup"
     },
     {
@@ -261,7 +261,7 @@
         928,
         656
       ],
-      "id": "f9a87675-5f52-4e40-afa5-cfec10b341cc",
+      "id": "6433faaf-7fee-4c52-a01b-13ab7a17617f",
       "name": "Search-Page",
       "credentials": {
         "httpBasicAuth": {
@@ -302,7 +302,7 @@
         1696,
         672
       ],
-      "id": "fa585bbb-79c7-41d3-a868-8929648cf137",
+      "id": "b443eb26-942b-45cd-9bd6-0ead7af96399",
       "name": "Page Exists Check"
     },
     {
@@ -325,7 +325,7 @@
         1264,
         864
       ],
-      "id": "cfa909ee-73df-45b5-86b3-6febb3f3081b",
+      "id": "019c0625-4576-4325-995a-7f204e8cf07f",
       "name": "Create-Page",
       "credentials": {
         "httpBasicAuth": {
@@ -366,7 +366,7 @@
         736,
         208
       ],
-      "id": "11021505-71a5-4438-9eb6-65cfd827d4b5",
+      "id": "5c0c421b-cead-4cc6-9f29-8ed8b1622134",
       "name": "If"
     },
     {
@@ -400,7 +400,7 @@
         1440,
         464
       ],
-      "id": "69c572d9-ab53-4b97-9b19-8204739b5aa4",
+      "id": "c472b8d9-ce85-4c01-add1-84c01ae67530",
       "name": "If2"
     },
     {
@@ -434,7 +434,7 @@
         1424,
         864
       ],
-      "id": "c1e92f69-5e2e-49ed-ba75-a8fa4241b51e",
+      "id": "3e0db251-2a7d-4d89-8f4f-5aa0ac5a1425",
       "name": "If3"
     },
     {
@@ -443,12 +443,16 @@
         "base": {
           "__rl": true,
           "value": "appotXUpMIoT8SbsB",
-          "mode": "id"
+          "mode": "list",
+          "cachedResultName": "Wikipedia Ingestion Logs",
+          "cachedResultUrl": "https://airtable.com/appotXUpMIoT8SbsB"
         },
         "table": {
           "__rl": true,
           "value": "tblPB9085vKiybQrH",
-          "mode": "id"
+          "mode": "list",
+          "cachedResultName": "Confluence Ingestion Logs",
+          "cachedResultUrl": "https://airtable.com/appotXUpMIoT8SbsB/tblPB9085vKiybQrH"
         },
         "columns": {
           "mappingMode": "defineBelow",
@@ -536,7 +540,7 @@
         1776,
         880
       ],
-      "id": "ed76088d-5bf3-42d5-afe4-42ad07247908",
+      "id": "0f391b19-a66a-4f9f-8df1-2a4f388c5695",
       "name": "Insert Row 4",
       "credentials": {
         "airtableTokenApi": {
@@ -551,12 +555,16 @@
         "base": {
           "__rl": true,
           "value": "appotXUpMIoT8SbsB",
-          "mode": "id"
+          "mode": "list",
+          "cachedResultName": "Wikipedia Ingestion Logs",
+          "cachedResultUrl": "https://airtable.com/appotXUpMIoT8SbsB"
         },
         "table": {
           "__rl": true,
           "value": "tblPB9085vKiybQrH",
-          "mode": "id"
+          "mode": "list",
+          "cachedResultName": "Confluence Ingestion Logs",
+          "cachedResultUrl": "https://airtable.com/appotXUpMIoT8SbsB/tblPB9085vKiybQrH"
         },
         "columns": {
           "mappingMode": "defineBelow",
@@ -646,7 +654,7 @@
         1600,
         848
       ],
-      "id": "7f0bcaa8-562b-46bb-99fe-7fb88b2f3e15",
+      "id": "c93b3102-8375-4174-9e66-5959224e657d",
       "name": "Insert Row 5",
       "credentials": {
         "airtableTokenApi": {
@@ -756,7 +764,7 @@
         912,
         192
       ],
-      "id": "1173e917-34c3-4496-ac6e-4ece38f8289c",
+      "id": "cd78ca18-9f84-4e1d-981c-a49241daea3d",
       "name": "Insert Row 1",
       "credentials": {
         "airtableTokenApi": {
@@ -770,13 +778,15 @@
         "operation": "create",
         "base": {
           "__rl": true,
-          "value": "appotXUpMIoT8SbsB",
-          "mode": "id"
+          "mode": "list",
+          "value": "appotXUpMIoT8SbsB"
         },
         "table": {
           "__rl": true,
           "value": "tblPB9085vKiybQrH",
-          "mode": "id"
+          "mode": "list",
+          "cachedResultName": "Confluence Ingestion Logs",
+          "cachedResultUrl": "https://airtable.com/appotXUpMIoT8SbsB/tblPB9085vKiybQrH"
         },
         "columns": {
           "mappingMode": "defineBelow",
@@ -866,7 +876,7 @@
         1616,
         448
       ],
-      "id": "3eac9caa-ec37-4364-a339-cc4bf255529d",
+      "id": "ac8641e5-7d18-4c14-9616-28c6e8960fed",
       "name": "Insert Row 2",
       "credentials": {
         "airtableTokenApi": {
@@ -881,12 +891,16 @@
         "base": {
           "__rl": true,
           "value": "appotXUpMIoT8SbsB",
-          "mode": "id"
+          "mode": "list",
+          "cachedResultName": "Wikipedia Ingestion Logs",
+          "cachedResultUrl": "https://airtable.com/appotXUpMIoT8SbsB"
         },
         "table": {
           "__rl": true,
           "value": "tblPB9085vKiybQrH",
-          "mode": "id"
+          "mode": "list",
+          "cachedResultName": "Confluence Ingestion Logs",
+          "cachedResultUrl": "https://airtable.com/appotXUpMIoT8SbsB/tblPB9085vKiybQrH"
         },
         "columns": {
           "mappingMode": "defineBelow",
@@ -976,7 +990,7 @@
         1264,
         640
       ],
-      "id": "386ec386-e34d-4966-89b1-646cfd81abcf",
+      "id": "bf69705c-278e-483f-89e7-c4b6d4dd962b",
       "name": "Insert Row 3",
       "credentials": {
         "airtableTokenApi": {
@@ -1016,110 +1030,8 @@
         1088,
         656
       ],
-      "id": "99f2cf96-17a6-4ad8-b0c3-f05d1650f9b6",
+      "id": "e4d88653-2d97-4fd9-a0be-6f1e7cd7253a",
       "name": "If1"
-    },
-    {
-      "parameters": {
-        "operation": "create",
-        "base": {
-          "__rl": true,
-          "value": "appotXUpMIoT8SbsB",
-          "mode": "list",
-          "cachedResultName": "Wikipedia Ingestion Logs",
-          "cachedResultUrl": "https://airtable.com/appotXUpMIoT8SbsB"
-        },
-        "table": {
-          "__rl": true,
-          "value": "tblRmBmJfWUIjJE8f",
-          "mode": "list",
-          "cachedResultName": "Chunk Status Logs",
-          "cachedResultUrl": "https://airtable.com/appotXUpMIoT8SbsB/tblRmBmJfWUIjJE8f"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "Page Title": "={{ $('HTML Cleanup').item.json.title }}",
-            "Page ID": "={{ $('Create-Page').item.json.id }}",
-            "isStashed": true
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "ID",
-              "displayName": "ID",
-              "required": false,
-              "defaultMatch": false,
-              "canBeUsedToMatch": true,
-              "display": true,
-              "type": "string",
-              "readOnly": true,
-              "removed": true
-            },
-            {
-              "id": "Page Title",
-              "displayName": "Page Title",
-              "required": false,
-              "defaultMatch": false,
-              "canBeUsedToMatch": true,
-              "display": true,
-              "type": "string",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "Page ID",
-              "displayName": "Page ID",
-              "required": false,
-              "defaultMatch": false,
-              "canBeUsedToMatch": true,
-              "display": true,
-              "type": "string",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "isStashed",
-              "displayName": "isStashed",
-              "required": false,
-              "defaultMatch": false,
-              "canBeUsedToMatch": true,
-              "display": true,
-              "type": "boolean",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "Last Chunked At",
-              "displayName": "Last Chunked At",
-              "required": false,
-              "defaultMatch": false,
-              "canBeUsedToMatch": true,
-              "display": true,
-              "type": "dateTime",
-              "readOnly": false,
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.airtable",
-      "typeVersion": 2.1,
-      "position": [
-        1936,
-        880
-      ],
-      "id": "17b1dca8-517c-4826-a09c-1b4eab56d506",
-      "name": "Insert Row 6",
-      "credentials": {
-        "airtableTokenApi": {
-          "id": "NoPDSrlg2rUM44bG",
-          "name": "Airtable Personal Access Token account"
-        }
-      }
     }
   ],
   "pinData": {},
@@ -1340,7 +1252,7 @@
       "main": [
         [
           {
-            "node": "Insert Row 6",
+            "node": "Pages Loop",
             "type": "main",
             "index": 0
           }
@@ -1408,17 +1320,6 @@
           }
         ]
       ]
-    },
-    "Insert Row 6": {
-      "main": [
-        [
-          {
-            "node": "Pages Loop",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
     }
   },
   "active": false,
@@ -1426,7 +1327,7 @@
     "executionOrder": "v1",
     "availableInMCP": false
   },
-  "versionId": "106358d6-0feb-4cd6-a791-080195bcb826",
+  "versionId": "4f30c77c-e3ca-4d09-9c31-305011137bec",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "85746769f9940529927359b39a26eaa05b4d41a11d888644efe2c27e2cbd1833"
