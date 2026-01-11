@@ -2,7 +2,7 @@ import os
 import requests
 import psycopg2
 from fastapi import FastAPI, HTTPException, Request
-from datetime import datetime, timezone
+from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from pinecone import Pinecone
 
