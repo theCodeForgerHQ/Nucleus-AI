@@ -13,6 +13,15 @@ services:
     ports:
       - "8000:8000"
 
+  page-content-processor:
+    build: ./page-content-processor
+    env_file:
+      - .env
+    environment:
+      HF_EMBEDDER_URL: http://hf-embedder:8000/
+    ports:
+      - "8001:8000"
+
   page-indexer-trigger:
     build: ./page-indexer-trigger
     env_file:

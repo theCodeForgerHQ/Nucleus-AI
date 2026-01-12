@@ -19,7 +19,7 @@ load_dotenv()
 CONFLUENCE_BASE_URL = os.getenv("CONFLUENCE_BASE_URL")
 EMAIL = os.getenv("CONFLUENCE_AUTH_USER")
 API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN")
-HF_EMBEDDER_URL = os.getenv("HF_EMBEDDER_URL", "http://localhost:8000/")
+HF_EMBEDDER_URL = os.getenv("HF_EMBEDDER_URL")
 
 DATABASE_URL = os.getenv("NEON_DB_URL")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
