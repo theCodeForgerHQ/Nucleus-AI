@@ -1,6 +1,9 @@
 up:
 	docker compose up --build
 
+up-nb:
+	docker compose up
+	
 down:
 	docker compose down
 

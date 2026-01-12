@@ -8,6 +8,11 @@ services:
     ports:
       - "8080:8080"
 
+  hf-embedder:
+    build: ./hf-embedder
+    ports:
+      - "8000:8000"
+
   page-indexer-trigger:
     build: ./page-indexer-trigger
     env_file:
