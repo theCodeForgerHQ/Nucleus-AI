@@ -20,9 +20,6 @@ HEADERS = {"Accept": "application/json"}
 pc = Pinecone(api_key=PINECONE_API_KEY)
 pc_index = pc.Index('kb-pages')
 
-conn = psycopg2.connect(DATABASE_URL)
-conn.autocommit = True
-
 app = FastAPI()
 
 def fetch_confluence_page(page_id):
@@ -42,15 +39,16 @@ def build_source_url(page_id):
     return url
 
 def upsert_neon(page_id, title, source_url, created_at):
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO kb_pages (page_id, page_title, source_url, created_at, is_stashed)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (page_id) DO NOTHING
-            """,
-            (page_id, title, source_url, created_at, True)
-        )
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO kb_pages (page_id, page_title, source_url, created_at, is_stashed)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (page_id) DO NOTHING
+                """,
+                (page_id, title, source_url, created_at, True)
+            )
 
 def upsert_pinecone(page_id, title):
     pc_index.upsert_records(

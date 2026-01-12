@@ -4,7 +4,7 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir \
     fastapi uvicorn requests python-dotenv psycopg2-binary \
-    llama-index pinecone-client \
+    llama-index pinecone \
     beautifulsoup4 markdownify
 
 COPY . .

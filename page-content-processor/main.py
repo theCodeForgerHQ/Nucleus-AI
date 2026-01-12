@@ -28,8 +28,6 @@ AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
 HEADERS = {"Accept": "application/json"}
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
-conn = psycopg2.connect(DATABASE_URL)
-conn.autocommit = True
 
 app = FastAPI()
 
@@ -76,39 +74,41 @@ def flatten_tables(tables):
 
 def upsert_neon_images(page_id, images):
     now = datetime.now(timezone.utc)
-    with conn.cursor() as cur:
-        for img in images:
-            h = sha256(img["src"] + img["caption"])
-            cur.execute(
-                """
-                INSERT INTO kb_images
-                (image_hash, page_id, image_src, caption, is_active, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (image_hash) DO NOTHING
-                """,
-                (h, page_id, img["src"], img["caption"], True, now)
-            )
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            for img in images:
+                h = sha256(img["src"] + img["caption"])
+                cur.execute(
+                    """
+                    INSERT INTO kb_images
+                    (image_hash, page_id, image_src, caption, is_active, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (image_hash) DO NOTHING
+                    """,
+                    (h, page_id, img["src"], img["caption"], True, now)
+                )
 
 def upsert_neon_chunks(page_id, chunks, section_paths):
     now = datetime.now(timezone.utc)
-    with conn.cursor() as cur:
-        for text, section in zip(chunks, section_paths):
-            h = sha256(text)
-            cur.execute(
-                """
-                INSERT INTO kb_chunks
-                (chunk_hash, raw_chunk, is_active, created_at, section_path, page_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (chunk_hash) DO NOTHING
-                """,
-                (h, text, True, now, section, page_id)
-            )
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            for text, section in zip(chunks, section_paths):
+                h = sha256(text)
+                cur.execute(
+                    """
+                    INSERT INTO kb_chunks
+                    (chunk_hash, raw_chunk, is_active, created_at, section_path, page_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (chunk_hash) DO NOTHING
+                    """,
+                    (h, text, True, now, section, page_id)
+                )
 
 def upsert_pinecone_chunks(chunks):
     records = []
     for text in chunks:
         h = sha256(text)
-        records.append({"_id": h, "text": text})
+        records.append({"_id": h, "raw_chunk": text})
     if records:
         pc.Index("kb-chunks").upsert_records(
             namespace="default",
@@ -119,7 +119,7 @@ def upsert_pinecone_images(images):
     records = []
     for img in images:
         h = sha256(img["src"] + img["caption"])
-        records.append({"_id": h, "text": img["caption"]})
+        records.append({"_id": h, "caption": img["caption"]})
     if records:
         pc.Index("kb-images").upsert_records(
             namespace="default",
