@@ -9,7 +9,6 @@ from pinecone import Pinecone
 DATABASE_URL = os.environ["NEON_DB_URL"]
 
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
-PINECONE_INDEX = os.environ["PAGE_PINECONE_INDEX"]
 
 CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"]
 EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
@@ -19,7 +18,7 @@ AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
 HEADERS = {"Accept": "application/json"}
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
-pc_index = pc.Index(PINECONE_INDEX)
+pc_index = pc.Index('kb-pages')
 
 conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
