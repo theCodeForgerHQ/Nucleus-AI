@@ -7,13 +7,12 @@ EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
 API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
 SPACE_KEY = os.environ["CONFLUENCE_SPACE_KEY"]
 PAGE_INDEXER_URL = os.environ["PAGE_INDEXER_URL"]
-ANCESTOR_ID = os.getenv("ANCESTOR_ID")
+CONFLUENCE_ANCESTOR_ID = os.getenv("CONFLUENCE_ANCESTOR_ID")
 
 AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
 HEADERS = {"Accept": "application/json"}
 
 def fetch_page_ids():
-    print("fetching page ids")
     page_ids = []
     start = 0
     limit = 50
@@ -26,19 +25,18 @@ def fetch_page_ids():
             "start": start
         }
 
-        if ANCESTOR_ID:
-            params["ancestors"] = ANCESTOR_ID
+        if CONFLUENCE_ANCESTOR_ID:
+            params["ancestors"] = CONFLUENCE_ANCESTOR_ID
 
         url = f"{CONFLUENCE_BASE_URL}/rest/api/content"
-        print(f"calling {url} start={start}")
-
-        r = requests.get(url, auth=AUTH, headers=HEADERS, params=params, timeout=15)
-
-        print(f"status {r.status_code}")
+        print(params)
+        try:
+            r = requests.get(url, auth=AUTH, headers=HEADERS, params=params, timeout=15)
+        except Exception as e:
+            return page_ids, f"request_failed {repr(e)}"
 
         if r.status_code != 200:
-            print(r.text)
-            raise RuntimeError("failed_to_fetch_pages")
+            return page_ids, "failed_to_fetch_pages"
 
         data = r.json()
         results = data.get("results", [])
@@ -53,33 +51,36 @@ def fetch_page_ids():
 
         start += limit
 
-    print(f"total pages found {len(page_ids)}")
-    return page_ids
+    return page_ids, None
 
 def call_page_indexer(page_id):
-    print(f"calling page-indexer for {page_id}")
-    r = requests.post(
-        PAGE_INDEXER_URL,
-        json={"page_id": page_id},
-        timeout=10
-    )
-    print(f"page-indexer status {r.status_code}")
+    try:
+        r = requests.post(
+            PAGE_INDEXER_URL,
+            json={"page_id": page_id},
+            timeout=10
+        )
+    except Exception as e:
+        return f"page_indexer_request_failed {repr(e)}"
+
     if r.status_code != 200:
-        print(r.text)
-        raise RuntimeError("page_indexer_failed")
+        return "page_indexer_failed"
+
+    return None
 
 def main():
-    try:
-        page_ids = fetch_page_ids()
-        for page_id in page_ids:
-            try:
-                call_page_indexer(page_id)
-            except Exception as e:
-                print(f"failed page {page_id} {repr(e)}")
-        print("trigger completed")
-    except Exception as e:
-        print("fatal error", repr(e))
-        raise
+    errors = []
+
+    page_ids, err = fetch_page_ids()
+    if err:
+        errors.append(err)
+
+    for page_id in page_ids:
+        err = call_page_indexer(page_id)
+        if err:
+            errors.append(f"failed page {page_id} {err}")
+
+    return errors
 
 if __name__ == "__main__":
     main()
