@@ -10,5 +10,11 @@ down:
 indexer-trigger:
 	docker compose run page-indexer-trigger
 
-trigger-build:
+indexer-trigger-build:
 	docker compose build page-indexer-trigger
+
+content-processor-trigger:
+	docker compose run content-processor-trigger
+
+content-processor-trigger-build:
+	docker compose build content-processor-trigger

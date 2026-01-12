@@ -30,3 +30,12 @@ services:
       PAGE_INDEXER_URL: http://page-indexer:8080/
     profiles:
       - trigger
+
+  content-processor-trigger:
+    build: ./content-processor-trigger
+    env_file:
+      - .env
+    environment:
+      PAGE_CONTENT_PROCESSOR_URL: http://page-content-processor:8001/
+    profiles:
+      - trigger
