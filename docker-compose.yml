@@ -36,6 +36,6 @@ services:
     env_file:
       - .env
     environment:
-      PAGE_CONTENT_PROCESSOR_URL: http://page-content-processor:8001/
+      PAGE_CONTENT_PROCESSOR_URL: http://page-content-processor:8000/
     profiles:
       - trigger

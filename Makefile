@@ -3,18 +3,18 @@ up:
 
 up-nb:
 	docker compose up
-	
+
 down:
 	docker compose down
 
 indexer-trigger:
-	docker compose run page-indexer-trigger
+	docker compose --profile trigger run page-indexer-trigger
 
 indexer-trigger-build:
 	docker compose build page-indexer-trigger
 
-content-processor-trigger:
-	docker compose run content-processor-trigger
+processor-trigger:
+	docker compose --profile trigger run content-processor-trigger
 
-content-processor-trigger-build:
+processor-trigger-build:
 	docker compose build content-processor-trigger

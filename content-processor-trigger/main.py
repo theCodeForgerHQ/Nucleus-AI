@@ -29,7 +29,6 @@ def fetch_page_ids():
             params["ancestors"] = CONFLUENCE_ANCESTOR_ID
 
         url = f"{CONFLUENCE_BASE_URL}/rest/api/content"
-        print(params)
         try:
             r = requests.get(url, auth=AUTH, headers=HEADERS, params=params, timeout=15)
         except Exception as e:
