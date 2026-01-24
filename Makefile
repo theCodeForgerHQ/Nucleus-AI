@@ -18,13 +18,3 @@ processor-trigger:
 
 processor-trigger-build:
 	docker compose build content-processor-trigger
-
-embedder:
-	docker compose up --build llama-text-embedder
-
-embedder-nb:
-	docker compose up llama-text-embedder
-
-embedder-down:
-	docker compose stop llama-text-embedder
-

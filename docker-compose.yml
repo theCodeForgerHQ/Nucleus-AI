@@ -39,15 +39,3 @@ services:
       PAGE_CONTENT_PROCESSOR_URL: http://page-content-processor:8000/
     profiles:
       - trigger
-
-  llama-text-embedder:
-    build: ./llama-text-embedder
-    container_name: llama-text-embedder
-    ports:
-      - "8002:8000"
-    device_requests:
-      - driver: nvidia
-        count: all
-        capabilities: [gpu]
-    profiles:
-      - embedder
