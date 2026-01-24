@@ -52,7 +52,7 @@ def fetch_page_ids():
 
     return page_ids, None
 
-def call_page_indexer(page_id):
+def call_page_processor(page_id):
     try:
         r = requests.post(
             PAGE_CONTENT_PROCESSOR_URL,
@@ -60,10 +60,10 @@ def call_page_indexer(page_id):
             timeout=10
         )
     except Exception as e:
-        return f"page_indexer_request_failed {repr(e)}"
+        return f"page_processor_request_failed {repr(e)}"
 
     if r.status_code != 200:
-        return "page_indexer_failed"
+        return "page_processor_failed"
 
     return None
 
@@ -75,7 +75,7 @@ def main():
         errors.append(err)
 
     for page_id in page_ids:
-        err = call_page_indexer(page_id)
+        err = call_page_processor(page_id)
         if err:
             errors.append(f"failed page {page_id} {err}")
 
