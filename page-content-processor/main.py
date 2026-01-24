@@ -10,9 +10,10 @@ from pydantic import BaseModel, Field
 from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser
 from llama_index.core.schema import Document
 from llama_index.core.embeddings import BaseEmbedding
-from pinecone import Pinecone
 from image_extractor import extract_images
 from text_processor import extract_tables, html_to_markdown
+from pymilvus import Collection, connections
+import time
 
 load_dotenv()
 
@@ -22,12 +23,21 @@ API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN")
 HF_EMBEDDER_URL = os.getenv("HF_EMBEDDER_URL")
 
 DATABASE_URL = os.getenv("NEON_DB_URL")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
 AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
 HEADERS = {"Accept": "application/json"}
 
-pc = Pinecone(api_key=PINECONE_API_KEY)
+connections.connect(
+    alias="default",
+    uri="https://in03-daffa9519d80931.serverless.aws-eu-central-1.cloud.zilliz.com",
+    token=os.environ["ZILLIZ_API_KEY"]
+)
+
+chunk_collection = Collection("kb_pages")
+chunk_collection.load()
+
+image_collection = Collection("kb_images")
+image_collection.load()
 
 app = FastAPI()
 
@@ -104,27 +114,62 @@ def upsert_neon_chunks(page_id, chunks, section_paths):
                     (h, text, True, now, section, page_id)
                 )
 
-def upsert_pinecone_chunks(chunks):
+import time
+
+def upsert_milvus_chunks_with_retry(chunks, retries=3, delay=2):
+    if not chunks:
+        return
+
     records = []
     for text in chunks:
         h = sha256(text)
-        records.append({"_id": h, "raw_chunk": text})
-    if records:
-        pc.Index("kb-chunks").upsert_records(
-            namespace="default",
-            records=records
+        r = requests.post(
+            "https://patient-husky-uniquely.ngrok-free.app/v1/embeddings",
+            json={"text": text},
+            headers={"Content-Type": "application/json"}
         )
+        embedding = r.json()["data"][0]["embedding"]
+        records.append({"chunk_hash": h, "vector": embedding})
 
-def upsert_pinecone_images(images):
+    attempt = 0
+    while attempt < retries:
+        try:
+            chunk_collection.insert(records)
+            chunk_collection.flush()
+            return
+        except Exception as e:
+            attempt += 1
+            if attempt >= retries:
+                raise RuntimeError(f"Milvus chunk upsert failed after {retries} attempts: {e}")
+            time.sleep(delay)
+
+
+def upsert_milvus_images_with_retry(images, retries=3, delay=2):
+    if not images:
+        return
+
     records = []
     for img in images:
         h = sha256(img["src"] + img["caption"])
-        records.append({"_id": h, "caption": img["caption"]})
-    if records:
-        pc.Index("kb-images").upsert_records(
-            namespace="default",
-            records=records
+        r = requests.post(
+            "https://patient-husky-uniquely.ngrok-free.app/v1/embeddings",
+            json={"text": img["caption"]},
+            headers={"Content-Type": "application/json"}
         )
+        embedding = r.json()["data"][0]["embedding"]
+        records.append({"image_hash": h, "vector": embedding})
+
+    attempt = 0
+    while attempt < retries:
+        try:
+            image_collection.insert(records)
+            image_collection.flush()
+            return
+        except Exception as e:
+            attempt += 1
+            if attempt >= retries:
+                raise RuntimeError(f"Milvus image upsert failed after {retries} attempts: {e}")
+            time.sleep(delay)
 
 def infer_section_paths(markdown, chunks):
     lines = markdown.splitlines()
@@ -177,9 +222,9 @@ def process_page(req: PageRequest):
         upsert_neon_chunks(page_id, text_chunks, section_paths)
         upsert_neon_chunks(page_id, table_chunks, table_section_paths)
 
-        upsert_pinecone_chunks(text_chunks)
-        upsert_pinecone_chunks(table_chunks)
-        upsert_pinecone_images(images)
+        upsert_milvus_chunks_with_retry(text_chunks)
+        upsert_milvus_chunks_with_retry(table_chunks)
+        upsert_milvus_images_with_retry(images)
 
         return {
             "page_id": page_id,

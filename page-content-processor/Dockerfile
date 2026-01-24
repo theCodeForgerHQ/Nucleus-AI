@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir fastapi uvicorn requests python-dotenv psycopg2-binary llama-index pinecone beautifulsoup4 markdownify pymilvus
+RUN pip install --no-cache-dir fastapi uvicorn requests python-dotenv psycopg2-binary llama-index beautifulsoup4 markdownify pymilvus
 
 COPY . .
 
