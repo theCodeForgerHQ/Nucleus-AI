@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: page-indexer-trigger
+  namespace: nucleus-ai
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: page-indexer-trigger
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: page-indexer-trigger
+          image: nucleus-ai-page-indexer-trigger:latest
+          env:
+            - name: PAGE_INDEXER_URL
+              value: http://page-indexer:8080
+          envFrom:
+            - configMapRef:
+                name: nucleus-ai-env
+          imagePullPolicy: IfNotPresent
