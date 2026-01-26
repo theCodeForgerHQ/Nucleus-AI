@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hf-embedder
+  namespace: nucleus-ai
+spec:
+  selector:
+    app: hf-embedder
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hf-embedder
+  namespace: nucleus-ai
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hf-embedder
+  template:
+    metadata:
+      labels:
+        app: hf-embedder
+    spec:
+      containers:
+        - name: hf-embedder
+          image: nucleus-ai-hf-embedder:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000

@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: page-processor
+  namespace: nucleus-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: page-processor
+  template:
+    metadata:
+      labels:
+        app: page-processor
+    spec:
+      containers:
+        - name: page-processor
+          image: nucleus-ai-page-processor:latest
+          envFrom:
+            - configMapRef:
+                name: nucleus-ai-env
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: HF_EMBEDDER_URL
+              value: http://hf-embedder:8000/
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: page-processor
+  namespace: nucleus-ai
+spec:
+  selector:
+    app: page-processor
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP
