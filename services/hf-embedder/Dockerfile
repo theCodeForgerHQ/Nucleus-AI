@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 ENV HF_HOME=/models
-ENV TRANSFORMERS_CACHE=/models
+ENV PYTHONPATH=/app
 
 COPY services/hf-embedder/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

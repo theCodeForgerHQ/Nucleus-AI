@@ -2,19 +2,29 @@ version: "3.9"
 
 services:
   page-indexer:
-    build: ./page-indexer
+    build:
+      context: .
+      dockerfile: services/page-indexer/Dockerfile
     env_file:
       - .env
     ports:
       - "8080:8080"
 
   hf-embedder:
-    build: ./hf-embedder
+    build:
+      context: .
+      dockerfile: services/hf-embedder/Dockerfile
+    env_file:
+      - .env
     ports:
       - "8000:8000"
 
   page-processor:
-    build: ./services/page-processor
+    depends_on:
+      - hf-embedder
+    build:
+      context: .
+      dockerfile: services/page-processor/Dockerfile
     env_file:
       - .env
     environment:
@@ -23,7 +33,9 @@ services:
       - "8001:8000"
 
   page-indexer-trigger:
-    build: ./jobs/page-indexer-trigger
+    build:
+      context: .
+      dockerfile: jobs/page-indexer-trigger/Dockerfile
     env_file:
       - .env
     environment:
@@ -31,8 +43,10 @@ services:
     profiles:
       - trigger
 
-  content-processor-trigger:
-    build: ./jobs/content-processor-trigger
+  page-processor-trigger:
+    build:
+      context: .
+      dockerfile: jobs/page-processor-trigger/Dockerfile
     env_file:
       - .env
     environment:

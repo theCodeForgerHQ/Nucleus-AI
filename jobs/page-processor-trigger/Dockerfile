@@ -9,6 +9,8 @@ COPY common ./common
 COPY jobs/common ./jobs/common
 COPY jobs/page-processor-trigger ./jobs/page-processor-trigger
 
+ENV PYTHONPATH=/app
+
 WORKDIR /app/jobs/page-processor-trigger
 
 CMD ["python", "main.py"]

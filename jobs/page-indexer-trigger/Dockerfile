@@ -9,6 +9,8 @@ COPY common ./common
 COPY jobs/common ./jobs/common
 COPY jobs/page-indexer-trigger ./jobs/page-indexer-trigger
 
+ENV PYTHONPATH=/app
+
 WORKDIR /app/jobs/page-indexer-trigger
 
 CMD ["python", "main.py"]
