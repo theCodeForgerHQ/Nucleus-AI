@@ -2,11 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY services/page-indexer/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY common ./common
-COPY page-indexer ./page-indexer
+COPY services/page-indexer ./page-indexer
 
 WORKDIR /app/page-indexer
 

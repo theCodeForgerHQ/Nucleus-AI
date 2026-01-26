@@ -7,8 +7,6 @@ from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from pinecone import Pinecone
 from common.logging import setup_logging
-from dotenv import load_dotenv
-load_dotenv()
 
 DATABASE_URL = os.environ["NEON_DB_URL"]
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
@@ -19,7 +17,10 @@ API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
 AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
 HEADERS = {"Accept": "application/json"}
 
-pc = Pinecone(api_key=PINECONE_API_KEY)
+pc = Pinecone(
+    api_key=PINECONE_API_KEY,
+    timeout=10.0,
+)
 pc_index = pc.Index("kb-pages")
 
 app = FastAPI()
@@ -41,7 +42,7 @@ def init_state(page_id):
             VALUES (%s, 'pending', 'pending', 'pending')
             ON CONFLICT (page_id) DO NOTHING
             """,
-            (page_id,)
+            (page_id,),
         )
     logger.info("state_init_success", page_id=page_id)
 
@@ -52,11 +53,11 @@ def update_state(page_id, field, value, error=None):
             f"""
             UPDATE kb_page_ingestion_state
             SET {field} = %s,
-                last_error = %s,
+                last_error = COALESCE(%s, last_error),
                 updated_at = now()
             WHERE page_id = %s
             """,
-            (value, error, page_id)
+            (value, error, page_id),
         )
     logger.info("state_update_success", page_id=page_id, field=field, value=value)
 
@@ -84,16 +85,19 @@ def fetch_confluence_page(page_id):
     logger.info("confluence_fetch_start", page_id=page_id)
 
     def op():
-        url = f"{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}?expand=history"
-        r = requests.get(url, auth=AUTH, headers=HEADERS, timeout=10)
+        r = requests.get(
+            f"{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}?expand=history",
+            auth=AUTH,
+            headers=HEADERS,
+            timeout=10,
+        )
         if r.status_code != 200:
             raise RuntimeError("confluence_fetch_failed")
         data = r.json()
-        title = data["title"]
-        created_at = datetime.fromisoformat(
-            data["history"]["createdDate"].replace("Z", "+00:00")
+        return (
+            data["title"],
+            datetime.fromisoformat(data["history"]["createdDate"].replace("Z", "+00:00")),
         )
-        return title, created_at
 
     result = retry(op, "confluence", page_id)
     logger.info("confluence_fetch_success", page_id=page_id)
@@ -126,12 +130,7 @@ def upsert_pinecone(page_id, title):
     def op():
         pc_index.upsert_records(
             namespace="default",
-            records=[
-                {
-                    "_id": f"page:{page_id}",
-                    "page_title": title,
-                }
-            ],
+            records=[{"_id": f"page:{page_id}", "page_title": title}],
         )
 
     retry(op, "pinecone", page_id)
@@ -143,18 +142,20 @@ async def page_created(req: Request):
     page_id = body["page_id"]
 
     logger.info("page_event_received", page_id=page_id)
-
     init_state(page_id)
 
+    stage = None
+
     try:
+        stage = "confluence"
         title, created_at = fetch_confluence_page(page_id)
         update_state(page_id, "confluence_status", "success")
 
-        source_url = build_source_url(page_id)
-
-        insert_neon(page_id, title, source_url, created_at)
+        stage = "neon"
+        insert_neon(page_id, title, build_source_url(page_id), created_at)
         update_state(page_id, "neon_status", "success")
 
+        stage = "pinecone"
         upsert_pinecone(page_id, title)
         update_state(page_id, "pinecone_status", "success")
 
@@ -163,14 +164,15 @@ async def page_created(req: Request):
 
     except Exception as e:
         err = str(e)
-        logger.error("page_index_failed", page_id=page_id, error=err)
+        if stage:
+            update_state(page_id, f"{stage}_status", "failed", err)
+        logger.error("page_index_failed", page_id=page_id, stage=stage, error=err)
         raise HTTPException(status_code=500)
 
 @app.post("/retry/confluence")
 def retry_confluence(req: dict):
     page_id = req["page_id"]
     logger.info("retry_endpoint_called", page_id=page_id, stage="confluence")
-    init_state(page_id)
     try:
         fetch_confluence_page(page_id)
         update_state(page_id, "confluence_status", "success")
@@ -219,7 +221,6 @@ def retry_pinecone(req: dict):
         logger.error("retry_pinecone_missing_page", page_id=page_id)
         raise HTTPException(status_code=404)
     title = row[0]
-
     try:
         upsert_pinecone(page_id, title)
         update_state(page_id, "pinecone_status", "success")

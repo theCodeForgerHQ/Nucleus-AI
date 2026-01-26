@@ -1,85 +1,46 @@
 import os
 import requests
-from requests.auth import HTTPBasicAuth
+from common.logging import setup_logging
+from jobs.common.confluence_pages import fetch_page_ids
 
-CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"]
-EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
-API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
-SPACE_KEY = os.environ["CONFLUENCE_SPACE_KEY"]
 PAGE_INDEXER_URL = os.environ["PAGE_INDEXER_URL"]
-CONFLUENCE_ANCESTOR_ID = os.getenv("CONFLUENCE_ANCESTOR_ID")
 
-AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
-HEADERS = {"Accept": "application/json"}
-
-def fetch_page_ids():
-    page_ids = []
-    start = 0
-    limit = 50
-
-    while True:
-        params = {
-            "type": "page",
-            "spaceKey": SPACE_KEY,
-            "limit": limit,
-            "start": start
-        }
-
-        if CONFLUENCE_ANCESTOR_ID:
-            params["ancestors"] = CONFLUENCE_ANCESTOR_ID
-
-        url = f"{CONFLUENCE_BASE_URL}/rest/api/content"
-        try:
-            r = requests.get(url, auth=AUTH, headers=HEADERS, params=params, timeout=15)
-        except Exception as e:
-            return page_ids, f"request_failed {repr(e)}"
-
-        if r.status_code != 200:
-            return page_ids, "failed_to_fetch_pages"
-
-        data = r.json()
-        results = data.get("results", [])
-
-        for page in results:
-            page_id = page.get("id")
-            if page_id:
-                page_ids.append(page_id)
-
-        if len(results) < limit:
-            break
-
-        start += limit
-
-    return page_ids, None
+logger = setup_logging("page-indexer-trigger")
 
 def call_page_indexer(page_id):
-    try:
-        r = requests.post(
-            PAGE_INDEXER_URL,
-            json={"page_id": page_id},
-            timeout=10
-        )
-    except Exception as e:
-        return f"page_indexer_request_failed {repr(e)}"
+    r = requests.post(
+        PAGE_INDEXER_URL,
+        json={"page_id": page_id},
+        timeout=10,
+    )
 
     if r.status_code != 200:
-        return "page_indexer_failed"
-
-    return None
+        raise RuntimeError("page_indexer_failed")
 
 def main():
-    errors = []
+    logger.info("trigger_start")
 
-    page_ids, err = fetch_page_ids()
-    if err:
-        errors.append(err)
+    page_ids = fetch_page_ids()
+    logger.info("pages_discovered", count=len(page_ids))
+
+    failures = 0
 
     for page_id in page_ids:
-        err = call_page_indexer(page_id)
-        if err:
-            errors.append(f"failed page {page_id} {err}")
+        try:
+            call_page_indexer(page_id)
+            logger.info("page_index_triggered", page_id=page_id)
+        except Exception as e:
+            failures += 1
+            logger.error("page_index_trigger_failed", page_id=page_id, error=str(e))
 
-    return errors
+    logger.info(
+        "trigger_complete",
+        total=len(page_ids),
+        failures=failures,
+    )
+
+    if failures:
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()

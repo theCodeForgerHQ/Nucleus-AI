@@ -4,4 +4,3 @@ requests
 psycopg2-binary
 pinecone-client
 structlog
-python-dotenv
