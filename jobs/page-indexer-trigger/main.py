@@ -1,21 +1,42 @@
 import os
+import time
 import requests
 from common.logging import setup_logging
 from jobs.common.confluence_pages import fetch_page_ids
 
 PAGE_INDEXER_URL = os.environ["PAGE_INDEXER_URL"]
+RETRIES = 3
+RETRY_SLEEP = 1.0
 
 logger = setup_logging("page-indexer-trigger")
 
 def call_page_indexer(page_id):
-    r = requests.post(
-        PAGE_INDEXER_URL,
-        json={"page_id": page_id},
-        timeout=10,
-    )
+    last_err = None
 
-    if r.status_code != 200:
-        raise RuntimeError("page_indexer_failed")
+    for attempt in range(1, RETRIES + 1):
+        try:
+            r = requests.post(
+                PAGE_INDEXER_URL,
+                json={"page_id": page_id},
+                timeout=10,
+            )
+
+            if r.status_code != 200:
+                raise RuntimeError(f"status_{r.status_code}")
+
+            return
+
+        except Exception as e:
+            last_err = str(e)
+            logger.warning(
+                "page_indexer_retry_failed",
+                page_id=page_id,
+                attempt=attempt,
+                error=last_err,
+            )
+            time.sleep(RETRY_SLEEP)
+
+    raise RuntimeError(last_err)
 
 def main():
     logger.info("trigger_start")

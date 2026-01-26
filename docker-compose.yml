@@ -13,8 +13,8 @@ services:
     ports:
       - "8000:8000"
 
-  page-content-processor:
-    build: ./page-content-processor
+  page-processor:
+    build: ./services/page-processor
     env_file:
       - .env
     environment:
@@ -23,7 +23,7 @@ services:
       - "8001:8000"
 
   page-indexer-trigger:
-    build: ./page-indexer-trigger
+    build: ./jobs/page-indexer-trigger
     env_file:
       - .env
     environment:
@@ -32,10 +32,10 @@ services:
       - trigger
 
   content-processor-trigger:
-    build: ./content-processor-trigger
+    build: ./jobs/content-processor-trigger
     env_file:
       - .env
     environment:
-      PAGE_CONTENT_PROCESSOR_URL: http://page-content-processor:8000/
+      PAGE_PROCESSOR_URL: http://page-processor:8000/
     profiles:
       - trigger

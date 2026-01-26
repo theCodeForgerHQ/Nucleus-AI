@@ -2,8 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY main.py .
+COPY jobs/page-processor-trigger/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN pip install requests
+COPY common ./common
+COPY jobs/common ./jobs/common
+COPY jobs/page-processor-trigger ./jobs/page-processor-trigger
+
+WORKDIR /app/jobs/page-processor-trigger
 
 CMD ["python", "main.py"]
