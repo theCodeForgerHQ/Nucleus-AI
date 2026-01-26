@@ -4,7 +4,7 @@ import requests
 import psycopg2
 from datetime import datetime, timezone
 from requests.auth import HTTPBasicAuth
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser
 from llama_index.core.schema import Document
@@ -19,6 +19,9 @@ EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
 API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
 HF_EMBEDDER_URL = os.environ["HF_EMBEDDER_URL"]
 
+PINECONE_BATCH_SIZE = 90
+PINECONE_IMAGE_BATCH_SIZE = 90
+
 DATABASE_URL = os.environ["NEON_DB_URL"]
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
 
@@ -30,6 +33,8 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 app = FastAPI()
 logger = setup_logging("page-processor")
 
+HF_EMBED_BATCH_SIZE = 32
+
 class HFHTTPEmbedding(BaseEmbedding):
     url: str = Field()
 
@@ -39,9 +44,20 @@ class HFHTTPEmbedding(BaseEmbedding):
         return r.json()["embeddings"][0]
 
     def _get_text_embeddings(self, texts):
-        r = requests.post(self.url, json={"texts": texts}, timeout=30)
-        r.raise_for_status()
-        return r.json()["embeddings"]
+        all_embeddings = []
+
+        for i in range(0, len(texts), HF_EMBED_BATCH_SIZE):
+            batch = texts[i : i + HF_EMBED_BATCH_SIZE]
+
+            r = requests.post(
+                self.url,
+                json={"texts": batch},
+                timeout=60,
+            )
+            r.raise_for_status()
+            all_embeddings.extend(r.json()["embeddings"])
+
+        return all_embeddings
 
     def _get_query_embedding(self, query):
         return self._get_text_embedding(query)
@@ -113,21 +129,58 @@ def upsert_neon_chunks(page_id, chunks, section_paths):
     logger.info("neon_chunks_upsert_success", page_id=page_id)
 
 def upsert_pinecone_chunks(chunks):
-    logger.info("pinecone_chunks_upsert_start", count=len(chunks))
-    records = [{"_id": sha256(text), "raw_chunk": text} for text in chunks]
-    if records:
-        pc.Index("kb-chunks").upsert_records(namespace="default", records=records)
-    logger.info("pinecone_chunks_upsert_success")
+    total = len(chunks)
+    logger.info("pinecone_chunks_upsert_start", count=total)
+
+    if not chunks:
+        return
+
+    index = pc.Index("kb-chunks")
+
+    for i in range(0, total, PINECONE_BATCH_SIZE):
+        batch = chunks[i : i + PINECONE_BATCH_SIZE]
+        records = [
+            {"_id": sha256(text), "raw_chunk": text}
+            for text in batch
+        ]
+        index.upsert_records(namespace="default", records=records)
+
+        logger.info(
+            "pinecone_chunks_upsert_batch_success",
+            batch_start=i,
+            batch_size=len(records),
+        )
+
+    logger.info("pinecone_chunks_upsert_success", count=total)
 
 def upsert_pinecone_images(images):
-    logger.info("pinecone_images_upsert_start", count=len(images))
-    records = [
-        {"_id": sha256(img["src"] + img["caption"]), "caption": img["caption"]}
-        for img in images
-    ]
-    if records:
-        pc.Index("kb-images").upsert_records(namespace="default", records=records)
-    logger.info("pinecone_images_upsert_success")
+    total = len(images)
+    logger.info("pinecone_images_upsert_start", count=total)
+
+    if not images:
+        return
+
+    index = pc.Index("kb-images")
+
+    for i in range(0, total, PINECONE_IMAGE_BATCH_SIZE):
+        batch = images[i : i + PINECONE_IMAGE_BATCH_SIZE]
+        records = [
+            {
+                "_id": sha256(img["src"] + img["caption"]),
+                "caption": img["caption"],
+            }
+            for img in batch
+        ]
+
+        index.upsert_records(namespace="default", records=records)
+
+        logger.info(
+            "pinecone_images_upsert_batch_success",
+            batch_start=i,
+            batch_size=len(records),
+        )
+
+    logger.info("pinecone_images_upsert_success", count=total)
 
 def infer_section_paths(markdown, chunks):
     current = None
@@ -136,78 +189,72 @@ def infer_section_paths(markdown, chunks):
             current = line.lstrip("#").strip()
     return [current for _ in chunks]
 
-@app.post("/")
-def process_page(req: PageRequest):
-    page_id = req.page_id
+def process_page_internal(page_id: str):
     logger.info("page_processing_start", page_id=page_id)
 
-    try:
-        html = fetch_confluence_page(page_id)
+    html = fetch_confluence_page(page_id)
 
-        images = extract_images(html)
-        tables = extract_tables(html)
-        table_chunks = flatten_tables(tables)
-        table_section_paths = [None] * len(table_chunks)
+    images = extract_images(html)
+    tables = extract_tables(html)
+    table_chunks = flatten_tables(tables)
+    table_section_paths = [None] * len(table_chunks)
 
-        logger.info(
-            "content_extraction_complete",
-            page_id=page_id,
-            images=len(images),
-            table_facts=len(table_chunks),
+    logger.info(
+        "content_extraction_complete",
+        page_id=page_id,
+        images=len(images),
+        table_facts=len(table_chunks),
+    )
+
+    markdown = html_to_markdown(html)
+    doc = Document(text=markdown)
+
+    structural = SentenceSplitter(
+        chunk_size=300,
+        chunk_overlap=50,
+        paragraph_separator="\n\n",
+    ).get_nodes_from_documents([doc])
+
+    embedder = HFHTTPEmbedding(url=HF_EMBEDDER_URL)
+    semantic = SemanticSplitterNodeParser(
+        embed_model=embedder,
+        buffer_size=1,
+        breakpoint_percentile_threshold=90,
+    )
+
+    semantic_nodes = []
+    for node in structural:
+        semantic_nodes.extend(
+            semantic.get_nodes_from_documents([Document(text=node.text)])
         )
 
-        markdown = html_to_markdown(html)
-        doc = Document(text=markdown)
+    text_chunks = [n.text for n in semantic_nodes if len(n.text.strip()) > 30]
+    section_paths = infer_section_paths(markdown, text_chunks)
 
-        structural = SentenceSplitter(
-            chunk_size=300,
-            chunk_overlap=50,
-        ).get_nodes_from_documents([doc])
+    logger.info(
+        "chunking_complete",
+        page_id=page_id,
+        chunks=len(text_chunks),
+    )
 
-        embedder = HFHTTPEmbedding(url=HF_EMBEDDER_URL)
-        semantic = SemanticSplitterNodeParser(
-            embed_model=embedder,
-            buffer_size=1,
-            breakpoint_percentile_threshold=90,
-        )
+    upsert_neon_images(page_id, images)
+    upsert_neon_chunks(page_id, text_chunks, section_paths)
+    upsert_neon_chunks(page_id, table_chunks, table_section_paths)
 
-        semantic_nodes = []
-        for node in structural:
-            semantic_nodes.extend(
-                semantic.get_nodes_from_documents([Document(text=node.text)])
-            )
+    upsert_pinecone_chunks(text_chunks)
+    upsert_pinecone_chunks(table_chunks)
+    upsert_pinecone_images(images)
 
-        text_chunks = [n.text for n in semantic_nodes if len(n.text.strip()) > 30]
-        section_paths = infer_section_paths(markdown, text_chunks)
+    logger.info("page_processing_success", page_id=page_id)
 
-        logger.info(
-            "chunking_complete",
-            page_id=page_id,
-            chunks=len(text_chunks),
-        )
-
-        upsert_neon_images(page_id, images)
-        upsert_neon_chunks(page_id, text_chunks, section_paths)
-        upsert_neon_chunks(page_id, table_chunks, table_section_paths)
-
-        upsert_pinecone_chunks(text_chunks)
-        upsert_pinecone_chunks(table_chunks)
-        upsert_pinecone_images(images)
-
-        logger.info("page_processing_success", page_id=page_id)
-
-        return {
-            "page_id": page_id,
-            "images": len(images),
-            "chunks": len(text_chunks),
-            "table_facts": len(table_chunks),
-        }
-
-    except Exception as e:
-        logger.error("page_processing_failed", page_id=page_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/")
+def process_page(req: PageRequest, background_tasks: BackgroundTasks):
+    page_id = req.page_id
+    logger.info("page_processing_accepted", page_id=page_id)
+    background_tasks.add_task(process_page_internal, page_id)
+    return {"page_id": page_id, "status": "accepted"}
 
 @app.get("/health")
 def health():
     logger.info("health_check")
-    return {"status": "ok"} 
+    return {"status": "ok"}

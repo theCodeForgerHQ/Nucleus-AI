@@ -5,6 +5,12 @@ WORKDIR /app
 COPY services/page-processor/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN python - <<EOF
+import nltk
+nltk.download("punkt")
+nltk.download("stopwords")
+EOF
+
 COPY common ./common
 COPY services/page-processor ./page-processor
 

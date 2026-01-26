@@ -2,7 +2,7 @@ import os
 import time
 import requests
 import psycopg2
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from pinecone import Pinecone
@@ -136,16 +136,8 @@ def upsert_pinecone(page_id, title):
     retry(op, "pinecone", page_id)
     logger.info("pinecone_upsert_success", page_id=page_id)
 
-@app.post("/")
-async def page_created(req: Request):
-    body = await req.json()
-    page_id = body["page_id"]
-
-    logger.info("page_event_received", page_id=page_id)
-    init_state(page_id)
-
+def process_page(page_id: str):
     stage = None
-
     try:
         stage = "confluence"
         title, created_at = fetch_confluence_page(page_id)
@@ -160,14 +152,24 @@ async def page_created(req: Request):
         update_state(page_id, "pinecone_status", "success")
 
         logger.info("page_index_success", page_id=page_id)
-        return {"page_id": page_id}
 
     except Exception as e:
         err = str(e)
         if stage:
             update_state(page_id, f"{stage}_status", "failed", err)
         logger.error("page_index_failed", page_id=page_id, stage=stage, error=err)
-        raise HTTPException(status_code=500)
+
+@app.post("/")
+async def page_created(req: Request, bg: BackgroundTasks):
+    body = await req.json()
+    page_id = body["page_id"]
+
+    logger.info("page_event_received", page_id=page_id)
+    init_state(page_id)
+
+    bg.add_task(process_page, page_id)
+
+    return {"accepted": True, "page_id": page_id}
 
 @app.post("/retry/confluence")
 def retry_confluence(req: dict):
@@ -234,4 +236,4 @@ def retry_pinecone(req: dict):
 @app.get("/health")
 def health():
     logger.info("health_check")
-    return {"status": "ok"} 
+    return {"status": "ok"}

@@ -22,6 +22,8 @@ def embed(req: EmbedRequest):
     try:
         embeddings = model.encode(
             req.texts,
+            batch_size=32,
+            show_progress_bar=False,
             normalize_embeddings=True,
         )
 

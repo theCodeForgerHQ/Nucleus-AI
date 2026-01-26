@@ -8,3 +8,4 @@ beautifulsoup4
 markdownify
 structlog
 pydantic
+nltk>=3.8
