@@ -233,4 +233,4 @@ def retry_pinecone(req: dict):
 @app.get("/health")
 def health():
     logger.info("health_check")
-    return {"status": "ok"}
+    return {"status": "ok"} 
