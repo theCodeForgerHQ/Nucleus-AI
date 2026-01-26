@@ -44,3 +44,8 @@ def embed(req: EmbedRequest):
             error=str(e),
         )
         raise
+
+@app.get("/health")
+def health():
+    logger.info("health_check")
+    return {"status": "ok"} 

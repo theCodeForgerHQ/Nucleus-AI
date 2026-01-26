@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+requests
+psycopg2-binary
+pinecone-client
+llama-index
+beautifulsoup4
+markdownify
+structlog
+pydantic

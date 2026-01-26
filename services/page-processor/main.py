@@ -3,7 +3,6 @@ import hashlib
 import requests
 import psycopg2
 from datetime import datetime, timezone
-from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -11,18 +10,17 @@ from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeP
 from llama_index.core.schema import Document
 from llama_index.core.embeddings import BaseEmbedding
 from pinecone import Pinecone
+from common.logging import setup_logging
 from image_extractor import extract_images
 from text_processor import extract_tables, html_to_markdown
 
-load_dotenv()
+CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"]
+EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
+API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
+HF_EMBEDDER_URL = os.environ["HF_EMBEDDER_URL"]
 
-CONFLUENCE_BASE_URL = os.getenv("CONFLUENCE_BASE_URL")
-EMAIL = os.getenv("CONFLUENCE_AUTH_USER")
-API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN")
-HF_EMBEDDER_URL = os.getenv("HF_EMBEDDER_URL")
-
-DATABASE_URL = os.getenv("NEON_DB_URL")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+DATABASE_URL = os.environ["NEON_DB_URL"]
+PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
 
 AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
 HEADERS = {"Accept": "application/json"}
@@ -30,6 +28,7 @@ HEADERS = {"Accept": "application/json"}
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
 app = FastAPI()
+logger = setup_logging("page-processor")
 
 class HFHTTPEmbedding(BaseEmbedding):
     url: str = Field()
@@ -50,7 +49,6 @@ class HFHTTPEmbedding(BaseEmbedding):
     async def _aget_query_embedding(self, query):
         return self._get_text_embedding(query)
 
-
 class PageRequest(BaseModel):
     page_id: str
 
@@ -58,10 +56,16 @@ def sha256(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 def fetch_confluence_page(page_id):
-    url = f"{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}"
-    params = {"expand": "body.storage"}
-    r = requests.get(url, headers=HEADERS, params=params, auth=AUTH)
+    logger.info("confluence_fetch_start", page_id=page_id)
+    r = requests.get(
+        f"{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}",
+        headers=HEADERS,
+        params={"expand": "body.storage"},
+        auth=AUTH,
+        timeout=15,
+    )
     r.raise_for_status()
+    logger.info("confluence_fetch_success", page_id=page_id)
     return r.json()["body"]["storage"]["value"]
 
 def flatten_tables(tables):
@@ -73,6 +77,7 @@ def flatten_tables(tables):
     return out
 
 def upsert_neon_images(page_id, images):
+    logger.info("neon_images_upsert_start", page_id=page_id, count=len(images))
     now = datetime.now(timezone.utc)
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
@@ -85,10 +90,12 @@ def upsert_neon_images(page_id, images):
                     VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (image_hash) DO NOTHING
                     """,
-                    (h, page_id, img["src"], img["caption"], True, now)
+                    (h, page_id, img["src"], img["caption"], True, now),
                 )
+    logger.info("neon_images_upsert_success", page_id=page_id)
 
 def upsert_neon_chunks(page_id, chunks, section_paths):
+    logger.info("neon_chunks_upsert_start", page_id=page_id, count=len(chunks))
     now = datetime.now(timezone.utc)
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
@@ -101,45 +108,40 @@ def upsert_neon_chunks(page_id, chunks, section_paths):
                     VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (chunk_hash) DO NOTHING
                     """,
-                    (h, text, True, now, section, page_id)
+                    (h, text, True, now, section, page_id),
                 )
+    logger.info("neon_chunks_upsert_success", page_id=page_id)
 
 def upsert_pinecone_chunks(chunks):
-    records = []
-    for text in chunks:
-        h = sha256(text)
-        records.append({"_id": h, "raw_chunk": text})
+    logger.info("pinecone_chunks_upsert_start", count=len(chunks))
+    records = [{"_id": sha256(text), "raw_chunk": text} for text in chunks]
     if records:
-        pc.Index("kb-chunks").upsert_records(
-            namespace="default",
-            records=records
-        )
+        pc.Index("kb-chunks").upsert_records(namespace="default", records=records)
+    logger.info("pinecone_chunks_upsert_success")
 
 def upsert_pinecone_images(images):
-    records = []
-    for img in images:
-        h = sha256(img["src"] + img["caption"])
-        records.append({"_id": h, "caption": img["caption"]})
+    logger.info("pinecone_images_upsert_start", count=len(images))
+    records = [
+        {"_id": sha256(img["src"] + img["caption"]), "caption": img["caption"]}
+        for img in images
+    ]
     if records:
-        pc.Index("kb-images").upsert_records(
-            namespace="default",
-            records=records
-        )
+        pc.Index("kb-images").upsert_records(namespace="default", records=records)
+    logger.info("pinecone_images_upsert_success")
 
 def infer_section_paths(markdown, chunks):
-    lines = markdown.splitlines()
     current = None
-    headings = []
-    for line in lines:
+    for line in markdown.splitlines():
         if line.startswith("#"):
             current = line.lstrip("#").strip()
-        headings.append(current)
     return [current for _ in chunks]
 
 @app.post("/")
 def process_page(req: PageRequest):
+    page_id = req.page_id
+    logger.info("page_processing_start", page_id=page_id)
+
     try:
-        page_id = req.page_id
         html = fetch_confluence_page(page_id)
 
         images = extract_images(html)
@@ -147,31 +149,42 @@ def process_page(req: PageRequest):
         table_chunks = flatten_tables(tables)
         table_section_paths = [None] * len(table_chunks)
 
+        logger.info(
+            "content_extraction_complete",
+            page_id=page_id,
+            images=len(images),
+            table_facts=len(table_chunks),
+        )
+
         markdown = html_to_markdown(html)
         doc = Document(text=markdown)
 
         structural = SentenceSplitter(
             chunk_size=300,
-            chunk_overlap=50
+            chunk_overlap=50,
         ).get_nodes_from_documents([doc])
 
         embedder = HFHTTPEmbedding(url=HF_EMBEDDER_URL)
         semantic = SemanticSplitterNodeParser(
             embed_model=embedder,
             buffer_size=1,
-            breakpoint_percentile_threshold=90
+            breakpoint_percentile_threshold=90,
         )
 
         semantic_nodes = []
         for node in structural:
             semantic_nodes.extend(
-                semantic.get_nodes_from_documents(
-                    [Document(text=node.text)]
-                )
+                semantic.get_nodes_from_documents([Document(text=node.text)])
             )
 
         text_chunks = [n.text for n in semantic_nodes if len(n.text.strip()) > 30]
         section_paths = infer_section_paths(markdown, text_chunks)
+
+        logger.info(
+            "chunking_complete",
+            page_id=page_id,
+            chunks=len(text_chunks),
+        )
 
         upsert_neon_images(page_id, images)
         upsert_neon_chunks(page_id, text_chunks, section_paths)
@@ -181,12 +194,20 @@ def process_page(req: PageRequest):
         upsert_pinecone_chunks(table_chunks)
         upsert_pinecone_images(images)
 
+        logger.info("page_processing_success", page_id=page_id)
+
         return {
             "page_id": page_id,
             "images": len(images),
             "chunks": len(text_chunks),
-            "table_facts": len(table_chunks)
+            "table_facts": len(table_chunks),
         }
 
     except Exception as e:
+        logger.error("page_processing_failed", page_id=page_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+def health():
+    logger.info("health_check")
+    return {"status": "ok"} 
