@@ -16,3 +16,16 @@ scrape_configs:
         labels:
           job: docker
           __path__: /var/lib/docker/containers/*/*-json.log
+
+    pipeline_stages:
+      - docker: {}
+
+      - json:
+          expressions:
+            service: service
+            level: level
+          drop_malformed: true
+
+      - labels:
+          service:
+          level:
