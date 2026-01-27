@@ -1,72 +1,55 @@
 import os
+import time
 import hashlib
-import requests
 import psycopg2
+import requests
 from datetime import datetime, timezone
 from requests.auth import HTTPBasicAuth
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel, Field
 from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser
 from llama_index.core.schema import Document
 from llama_index.core.embeddings import BaseEmbedding
 from pinecone import Pinecone
 from common.logging import setup_logging
-from image_extractor import extract_images
-from text_processor import extract_tables, html_to_markdown
+from helpers.embedder.hf_embedder import embed
+from helpers.extractor.image_extractor import extract_images
+from helpers.extractor.text_processor import extract_tables, html_to_markdown
+from jobs.common.confluence_pages import fetch_page_ids
+
+logger = setup_logging("page-processing-job")
 
 CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"]
 EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
 API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
-HF_EMBEDDER_URL = os.environ["HF_EMBEDDER_URL"]
-
-PINECONE_BATCH_SIZE = 90
-PINECONE_IMAGE_BATCH_SIZE = 90
-
 DATABASE_URL = os.environ["NEON_DB_URL"]
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
 
 AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
 HEADERS = {"Accept": "application/json"}
 
+PINECONE_BATCH_SIZE = 90
+PINECONE_IMAGE_BATCH_SIZE = 90
+HF_EMBED_BATCH_SIZE = 32
+RETRIES = 3
+RETRY_SLEEP = 1.0
+
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
-app = FastAPI()
-logger = setup_logging("page-processor")
-
-HF_EMBED_BATCH_SIZE = 32
-
-class HFHTTPEmbedding(BaseEmbedding):
-    url: str = Field()
-
+class HFEmbedding(BaseEmbedding):
     def _get_text_embedding(self, text):
-        r = requests.post(self.url, json={"texts": [text]}, timeout=30)
-        r.raise_for_status()
-        return r.json()["embeddings"][0]
+        return self._get_text_embeddings([text])[0]
 
     def _get_text_embeddings(self, texts):
-        all_embeddings = []
-
+        out = []
         for i in range(0, len(texts), HF_EMBED_BATCH_SIZE):
             batch = texts[i : i + HF_EMBED_BATCH_SIZE]
-
-            r = requests.post(
-                self.url,
-                json={"texts": batch},
-                timeout=60,
-            )
-            r.raise_for_status()
-            all_embeddings.extend(r.json()["embeddings"])
-
-        return all_embeddings
+            out.extend(embed(batch))
+        return out
 
     def _get_query_embedding(self, query):
         return self._get_text_embedding(query)
 
     async def _aget_query_embedding(self, query):
         return self._get_text_embedding(query)
-
-class PageRequest(BaseModel):
-    page_id: str
 
 def sha256(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -131,55 +114,38 @@ def upsert_neon_chunks(page_id, chunks, section_paths):
 def upsert_pinecone_chunks(chunks):
     total = len(chunks)
     logger.info("pinecone_chunks_upsert_start", count=total)
-
     if not chunks:
         return
-
     index = pc.Index("kb-chunks")
-
     for i in range(0, total, PINECONE_BATCH_SIZE):
         batch = chunks[i : i + PINECONE_BATCH_SIZE]
-        records = [
-            {"_id": sha256(text), "raw_chunk": text}
-            for text in batch
-        ]
+        records = [{"_id": sha256(text), "raw_chunk": text} for text in batch]
         index.upsert_records(namespace="default", records=records)
-
         logger.info(
             "pinecone_chunks_upsert_batch_success",
             batch_start=i,
             batch_size=len(records),
         )
-
     logger.info("pinecone_chunks_upsert_success", count=total)
 
 def upsert_pinecone_images(images):
     total = len(images)
     logger.info("pinecone_images_upsert_start", count=total)
-
     if not images:
         return
-
     index = pc.Index("kb-images")
-
     for i in range(0, total, PINECONE_IMAGE_BATCH_SIZE):
         batch = images[i : i + PINECONE_IMAGE_BATCH_SIZE]
         records = [
-            {
-                "_id": sha256(img["src"] + img["caption"]),
-                "caption": img["caption"],
-            }
+            {"_id": sha256(img["src"] + img["caption"]), "caption": img["caption"]}
             for img in batch
         ]
-
         index.upsert_records(namespace="default", records=records)
-
         logger.info(
             "pinecone_images_upsert_batch_success",
             batch_start=i,
             batch_size=len(records),
         )
-
     logger.info("pinecone_images_upsert_success", count=total)
 
 def infer_section_paths(markdown, chunks):
@@ -189,7 +155,7 @@ def infer_section_paths(markdown, chunks):
             current = line.lstrip("#").strip()
     return [current for _ in chunks]
 
-def process_page_internal(page_id: str):
+def process_page(page_id):
     logger.info("page_processing_start", page_id=page_id)
 
     html = fetch_confluence_page(page_id)
@@ -215,7 +181,7 @@ def process_page_internal(page_id: str):
         paragraph_separator="\n\n",
     ).get_nodes_from_documents([doc])
 
-    embedder = HFHTTPEmbedding(url=HF_EMBEDDER_URL)
+    embedder = HFEmbedding()
     semantic = SemanticSplitterNodeParser(
         embed_model=embedder,
         buffer_size=1,
@@ -247,14 +213,36 @@ def process_page_internal(page_id: str):
 
     logger.info("page_processing_success", page_id=page_id)
 
-@app.post("/")
-def process_page(req: PageRequest, background_tasks: BackgroundTasks):
-    page_id = req.page_id
-    logger.info("page_processing_accepted", page_id=page_id)
-    background_tasks.add_task(process_page_internal, page_id)
-    return {"page_id": page_id, "status": "accepted"}
+def main():
+    logger.info("job_start")
+    page_ids = fetch_page_ids()
+    failures = 0
 
-@app.get("/health")
-def health():
-    logger.info("health_check")
-    return {"status": "ok"}
+    for page_id in page_ids:
+        last_err = None
+        for attempt in range(1, RETRIES + 1):
+            try:
+                process_page(page_id)
+                logger.info("page_processed", page_id=page_id)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = str(e)
+                logger.warning(
+                    "page_retry_failed",
+                    page_id=page_id,
+                    attempt=attempt,
+                    error=last_err,
+                )
+                time.sleep(RETRY_SLEEP)
+        if last_err:
+            failures += 1
+            logger.error("page_failed", page_id=page_id, error=last_err)
+
+    logger.info("job_complete", total=len(page_ids), failures=failures)
+
+    if failures:
+        raise SystemExit(1)
+
+if __name__ == "__main__":
+    main()

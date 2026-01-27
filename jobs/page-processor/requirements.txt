@@ -1,11 +1,9 @@
-fastapi
-uvicorn
+
 requests
 psycopg2-binary
 pinecone
+sentence-transformers
 llama-index
 beautifulsoup4
 markdownify
-structlog
 pydantic
-nltk>=3.8
