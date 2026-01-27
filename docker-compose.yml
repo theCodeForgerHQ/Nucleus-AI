@@ -4,52 +4,31 @@ services:
   page-indexer:
     build:
       context: .
-      dockerfile: services/page-indexer/Dockerfile
+      dockerfile: services/page_indexer/Dockerfile
     env_file:
       - .env
-    ports:
-      - "8080:8080"
-
-  hf-embedder:
-    build:
-      context: .
-      dockerfile: services/hf-embedder/Dockerfile
-    env_file:
-      - .env
+    restart: unless-stopped
     ports:
       - "8000:8000"
-
-  page-processor:
-    depends_on:
-      - hf-embedder
-    build:
-      context: .
-      dockerfile: services/page-processor/Dockerfile
-    env_file:
-      - .env
-    environment:
-      HF_EMBEDDER_URL: http://hf-embedder:8000/
-    ports:
-      - "8001:8000"
 
   page-indexer-trigger:
     build:
       context: .
-      dockerfile: jobs/page-indexer-trigger/Dockerfile
+      dockerfile: jobs/page_indexer_trigger/Dockerfile
     env_file:
       - .env
     environment:
-      PAGE_INDEXER_URL: http://page-indexer:8080/
+      PAGE_INDEXER_URL: http://page-indexer:8000/
     profiles:
       - trigger
+    restart: "no"
 
-  page-processor-trigger:
+  page-processor-oneoff:
     build:
       context: .
-      dockerfile: jobs/page-processor-trigger/Dockerfile
+      dockerfile: jobs/page_processor/jobs/one_off/Dockerfile
     env_file:
       - .env
-    environment:
-      PAGE_PROCESSOR_URL: http://page-processor:8000/
     profiles:
       - trigger
+    restart: "no"

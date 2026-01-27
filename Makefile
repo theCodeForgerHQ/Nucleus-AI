@@ -2,7 +2,7 @@ NAMESPACE := nucleus-ai
 
 .PHONY: \
 	docker-up docker-up-nb docker-down docker-logs \
-	indexer-trigger processor-trigger \
+	indexer-trigger processor-oneoff \
 	k8s-up k8s-down k8s-watch k8s-status k8s-clean
 
 # --------------------
@@ -24,8 +24,8 @@ docker-logs:
 indexer-trigger:
 	docker compose --profile trigger run --rm page-indexer-trigger
 
-processor-trigger:
-	docker compose --profile trigger run --rm page-processor-trigger
+processor-oneoff:
+	docker compose --profile trigger run --rm page-processor-oneoff
 
 
 # --------------------

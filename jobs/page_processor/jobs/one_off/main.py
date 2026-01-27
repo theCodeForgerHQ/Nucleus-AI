@@ -10,9 +10,9 @@ from llama_index.core.schema import Document
 from llama_index.core.embeddings import BaseEmbedding
 from pinecone import Pinecone
 from common.logging import setup_logging
-from helpers.embedder.hf_embedder import embed
-from helpers.extractor.image_extractor import extract_images
-from helpers.extractor.text_processor import extract_tables, html_to_markdown
+from jobs.page_processor.helpers.embedder.hf_embedder import embed
+from jobs.page_processor.helpers.extractors.image_extractor import extract_images
+from jobs.page_processor.helpers.extractors.text_processor import extract_tables, html_to_markdown
 from jobs.common.confluence_pages import fetch_page_ids
 
 logger = setup_logging("page-processing-job")
