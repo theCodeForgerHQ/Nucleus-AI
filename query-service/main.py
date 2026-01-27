@@ -41,10 +41,8 @@ pages_index = pc.Index(KB_PAGES_INDEX)
 
 app = FastAPI()
 
-
 class QueryRequest(BaseModel):
     query: str
-
 
 def search_with_text(index, index_name: str, text: str, top_k: int):
     logger.info(f"Searching Pinecone index='{index_name}' query='{text}' top_k={top_k}")
@@ -61,7 +59,6 @@ def search_with_text(index, index_name: str, text: str, top_k: int):
     logger.info(f"Pinecone index='{index_name}' returned {len(hits)} hits")
 
     return {hit["_id"]: hit["_score"] for hit in hits}
-
 
 def fetch_chunks_from_neon(chunk_ids: List[str]) -> Dict[str, dict]:
     logger.info(f"Fetching {len(chunk_ids)} chunks from Neon")
@@ -93,7 +90,6 @@ def fetch_chunks_from_neon(chunk_ids: List[str]) -> Dict[str, dict]:
 
     return result
 
-
 def call_reranker(query: str, texts: list[str]) -> list[float]:
     logger.info(f"Calling reranker for {len(texts)} candidates")
 
@@ -116,7 +112,6 @@ def run_query(req: QueryRequest):
         query = req.query
         logger.info(f"Received query: {query}")
 
-        # --- Vector searches ---
         chunk_scores = search_with_text(chunks_index, KB_CHUNKS_INDEX, query, TOP_K_CHUNKS)
         if not chunk_scores:
             logger.warning("No chunk matches found")
@@ -124,13 +119,11 @@ def run_query(req: QueryRequest):
 
         page_scores = search_with_text(pages_index, KB_PAGES_INDEX, query, TOP_K_PAGES)
 
-        # --- Fetch metadata ---
         chunk_metadata = fetch_chunks_from_neon(list(chunk_scores.keys()))
         if not chunk_metadata:
             logger.warning("No matching chunk metadata found in Neon")
             return {"query": query, "results": []}
 
-        # --- Score fusion ---
         fused_candidates = []
 
         for chunk_id, chunk_score in chunk_scores.items():
@@ -157,7 +150,6 @@ def run_query(req: QueryRequest):
 
         logger.info(f"Fusion produced {len(fused_candidates)} candidates")
 
-        # --- Rerank ---
         texts = [item["text"] for item in fused_candidates]
         rerank_scores = call_reranker(query, texts)
 
