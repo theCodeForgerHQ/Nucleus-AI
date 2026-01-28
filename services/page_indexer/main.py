@@ -6,7 +6,6 @@ from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from pinecone import Pinecone
-from common.logging import setup_logging
 from common.analytics import (
     record_stage_execution,
     record_indexing_result,
@@ -25,7 +24,6 @@ pc = Pinecone(api_key=PINECONE_API_KEY, timeout=10.0)
 pc_index = pc.Index("kb-pages")
 
 app = FastAPI()
-logger = setup_logging("page-indexer")
 
 RETRIES = 3
 RETRY_SLEEP = 1.0
