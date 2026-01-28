@@ -3,4 +3,3 @@ uvicorn
 requests
 psycopg2-binary
 pinecone
-structlog
