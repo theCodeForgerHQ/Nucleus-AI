@@ -7,3 +7,5 @@ llama-index
 beautifulsoup4
 markdownify
 pydantic
+duckdb
+
