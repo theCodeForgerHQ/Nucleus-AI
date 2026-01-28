@@ -7,6 +7,10 @@ from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from pinecone import Pinecone
 from common.logging import setup_logging
+from common.analytics import (
+    record_stage_execution,
+    record_indexing_result,
+)
 
 DATABASE_URL = os.environ["NEON_DB_URL"]
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
@@ -17,10 +21,7 @@ API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
 AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
 HEADERS = {"Accept": "application/json"}
 
-pc = Pinecone(
-    api_key=PINECONE_API_KEY,
-    timeout=10.0,
-)
+pc = Pinecone(api_key=PINECONE_API_KEY, timeout=10.0)
 pc_index = pc.Index("kb-pages")
 
 app = FastAPI()
@@ -33,7 +34,6 @@ def db():
     return psycopg2.connect(DATABASE_URL)
 
 def init_state(page_id):
-    logger.info("state_init_start", page_id=page_id)
     with db() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -44,10 +44,8 @@ def init_state(page_id):
             """,
             (page_id,),
         )
-    logger.info("state_init_success", page_id=page_id)
 
 def update_state(page_id, field, value, error=None):
-    logger.info("state_update_start", page_id=page_id, field=field, value=value)
     with db() as conn, conn.cursor() as cur:
         cur.execute(
             f"""
@@ -59,30 +57,19 @@ def update_state(page_id, field, value, error=None):
             """,
             (value, error, page_id),
         )
-    logger.info("state_update_success", page_id=page_id, field=field, value=value)
 
 def retry(op, stage, page_id):
     last_err = None
     for attempt in range(1, RETRIES + 1):
         try:
-            result = op()
-            logger.info("retry_success", page_id=page_id, stage=stage, attempt=attempt)
-            return result
+            return op()
         except Exception as e:
             last_err = str(e)
-            logger.warning(
-                "retry_attempt_failed",
-                page_id=page_id,
-                stage=stage,
-                attempt=attempt,
-                error=last_err,
-            )
             time.sleep(RETRY_SLEEP)
-    logger.error("retry_exhausted", page_id=page_id, stage=stage, error=last_err)
     raise RuntimeError(last_err)
 
 def fetch_confluence_page(page_id):
-    logger.info("confluence_fetch_start", page_id=page_id)
+    start = time.time()
 
     def op():
         r = requests.get(
@@ -100,14 +87,22 @@ def fetch_confluence_page(page_id):
         )
 
     result = retry(op, "confluence", page_id)
-    logger.info("confluence_fetch_success", page_id=page_id)
+
+    record_stage_execution(
+        page_id=page_id,
+        pipeline="indexing",
+        stage_name="confluence",
+        status="success",
+        latency_ms=int((time.time() - start) * 1000),
+    )
+
     return result
 
 def build_source_url(page_id):
     return f"{CONFLUENCE_BASE_URL}/pages/{page_id}"
 
 def insert_neon(page_id, title, source_url, created_at):
-    logger.info("neon_insert_start", page_id=page_id)
+    start = time.time()
 
     def op():
         with db() as conn, conn.cursor() as cur:
@@ -122,10 +117,17 @@ def insert_neon(page_id, title, source_url, created_at):
             )
 
     retry(op, "neon", page_id)
-    logger.info("neon_insert_success", page_id=page_id)
+
+    record_stage_execution(
+        page_id=page_id,
+        pipeline="indexing",
+        stage_name="neon",
+        status="success",
+        latency_ms=int((time.time() - start) * 1000),
+    )
 
 def upsert_pinecone(page_id, title):
-    logger.info("pinecone_upsert_start", page_id=page_id)
+    start = time.time()
 
     def op():
         pc_index.upsert_records(
@@ -134,10 +136,19 @@ def upsert_pinecone(page_id, title):
         )
 
     retry(op, "pinecone", page_id)
-    logger.info("pinecone_upsert_success", page_id=page_id)
+
+    record_stage_execution(
+        page_id=page_id,
+        pipeline="indexing",
+        stage_name="pinecone",
+        status="success",
+        latency_ms=int((time.time() - start) * 1000),
+    )
 
 def process_page(page_id: str):
+    start = time.time()
     stage = None
+
     try:
         stage = "confluence"
         title, created_at = fetch_confluence_page(page_id)
@@ -151,44 +162,53 @@ def process_page(page_id: str):
         upsert_pinecone(page_id, title)
         update_state(page_id, "pinecone_status", "success")
 
-        logger.info("page_index_success", page_id=page_id)
+        record_indexing_result(
+            page_id=page_id,
+            final_status="success",
+            total_latency_ms=int((time.time() - start) * 1000),
+        )
 
     except Exception as e:
         err = str(e)
         if stage:
             update_state(page_id, f"{stage}_status", "failed", err)
-        logger.error("page_index_failed", page_id=page_id, stage=stage, error=err)
+
+        record_stage_execution(
+            page_id=page_id,
+            pipeline="indexing",
+            stage_name=stage,
+            status="failed",
+            latency_ms=0,
+        )
+
+        record_indexing_result(
+            page_id=page_id,
+            final_status="failed",
+            total_latency_ms=int((time.time() - start) * 1000),
+        )
 
 @app.post("/")
 async def page_created(req: Request, bg: BackgroundTasks):
     body = await req.json()
     page_id = body["page_id"]
 
-    logger.info("page_event_received", page_id=page_id)
-    init_state(page_id)
-
     bg.add_task(process_page, page_id)
-
     return {"accepted": True, "page_id": page_id}
 
 @app.post("/retry/confluence")
 def retry_confluence(req: dict):
     page_id = req["page_id"]
-    logger.info("retry_endpoint_called", page_id=page_id, stage="confluence")
     try:
         fetch_confluence_page(page_id)
         update_state(page_id, "confluence_status", "success")
-        logger.info("retry_endpoint_success", page_id=page_id, stage="confluence")
         return {"page_id": page_id, "stage": "confluence"}
     except Exception as e:
         update_state(page_id, "confluence_status", "failed", str(e))
-        logger.error("retry_endpoint_failed", page_id=page_id, stage="confluence", error=str(e))
         raise HTTPException(status_code=500)
 
 @app.post("/retry/neon")
 def retry_neon(req: dict):
     page_id = req["page_id"]
-    logger.info("retry_endpoint_called", page_id=page_id, stage="neon")
     with db() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT page_title, source_url, created_at FROM kb_pages WHERE page_id = %s",
@@ -196,23 +216,19 @@ def retry_neon(req: dict):
         )
         row = cur.fetchone()
     if not row:
-        logger.error("retry_neon_missing_page", page_id=page_id)
         raise HTTPException(status_code=404)
     title, source_url, created_at = row
     try:
         insert_neon(page_id, title, source_url, created_at)
         update_state(page_id, "neon_status", "success")
-        logger.info("retry_endpoint_success", page_id=page_id, stage="neon")
         return {"page_id": page_id, "stage": "neon"}
     except Exception as e:
         update_state(page_id, "neon_status", "failed", str(e))
-        logger.error("retry_endpoint_failed", page_id=page_id, stage="neon", error=str(e))
         raise HTTPException(status_code=500)
 
 @app.post("/retry/pinecone")
 def retry_pinecone(req: dict):
     page_id = req["page_id"]
-    logger.info("retry_endpoint_called", page_id=page_id, stage="pinecone")
     with db() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT page_title FROM kb_pages WHERE page_id = %s",
@@ -220,20 +236,15 @@ def retry_pinecone(req: dict):
         )
         row = cur.fetchone()
     if not row:
-        logger.error("retry_pinecone_missing_page", page_id=page_id)
         raise HTTPException(status_code=404)
     title = row[0]
     try:
         upsert_pinecone(page_id, title)
         update_state(page_id, "pinecone_status", "success")
-        logger.info("retry_endpoint_success", page_id=page_id, stage="pinecone")
         return {"page_id": page_id, "stage": "pinecone"}
     except Exception as e:
-        update_state(page_id, "pinecone_status", "failed", str(e))
-        logger.error("retry_endpoint_failed", page_id=page_id, stage="pinecone", error=str(e))
         raise HTTPException(status_code=500)
 
 @app.get("/health")
 def health():
-    logger.info("health_check")
     return {"status": "ok"}

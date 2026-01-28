@@ -1,5 +1,5 @@
 import duckdb
-from datetime import datetime
+from datetime import datetime, timezone
 
 DB_PATH = "metrics.duckdb"
 
@@ -21,7 +21,7 @@ def record_indexing_result(
                 page_id,
                 final_status,
                 total_latency_ms,
-                datetime.utcnow(),
+                datetime.now(timezone.utc)
             ),
         )
 
@@ -54,7 +54,7 @@ def record_processing_result(
                 max_chunk_length,
                 total_embeddings,
                 total_latency_ms,
-                datetime.utcnow(),
+                datetime.now(timezone.utc)
             ),
         )
 
@@ -77,6 +77,6 @@ def record_stage_execution(
                 stage_name,
                 status,
                 latency_ms,
-                datetime.utcnow(),
+                datetime.now(timezone.utc)
             ),
         )
