@@ -1,14 +1,18 @@
 import os
 import logging
+import time
 from typing import List, Dict
-
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 
 import psycopg2
 import requests
 from pinecone import Pinecone
 from dotenv import load_dotenv
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+from guardrails import Guard
+from guardrails.hub import ValidLength   
 
 load_dotenv()
 
@@ -16,7 +20,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
-
 logger = logging.getLogger("query-service")
 
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
@@ -37,6 +40,10 @@ W_PAGE = 0.3
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+length_guard = Guard().use_many(
+    ValidLength(min=20, max=4000)
+)
+
 logger.info("Initializing Pinecone client")
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
@@ -49,7 +56,9 @@ class QueryRequest(BaseModel):
     query: str
 
 def search_with_text(index, index_name: str, text: str, top_k: int):
-    logger.info(f"Searching Pinecone index='{index_name}' query='{text}' top_k={top_k}")
+    logger.info(f"Pinecone search | index={index_name} | top_k={top_k}")
+    start = time.time()
+
     response = index.search(
         namespace="default",
         query={
@@ -57,25 +66,32 @@ def search_with_text(index, index_name: str, text: str, top_k: int):
             "top_k": top_k
         }
     )
+
     hits = response.get("result", {}).get("hits") or []
-    logger.info(f"Pinecone index='{index_name}' returned {len(hits)} hits")
+    logger.info(f"Pinecone results | index={index_name} | hits={len(hits)} | time={round(time.time()-start,2)}s")
+
     return {hit["_id"]: hit["_score"] for hit in hits}
 
 def fetch_chunks_from_neon(chunk_ids: List[str]) -> Dict[str, dict]:
-    logger.info(f"Fetching {len(chunk_ids)} chunks from Neon")
+    logger.info(f"Neon fetch | chunk_ids={len(chunk_ids)}")
     if not chunk_ids:
         return {}
+
     placeholders = ",".join(["%s"] * len(chunk_ids))
     query = f"""
         SELECT chunk_hash, raw_chunk, section_path, page_id
         FROM kb_chunks
         WHERE chunk_hash IN ({placeholders})
     """
+
+    start = time.time()
     with psycopg2.connect(NEON_DB_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(query, chunk_ids)
             rows = cur.fetchall()
-    logger.info(f"Neon returned {len(rows)} chunk rows")
+
+    logger.info(f"Neon returned | rows={len(rows)} | time={round(time.time()-start,2)}s")
+
     result = {}
     for row in rows:
         result[row[0]] = {
@@ -85,33 +101,38 @@ def fetch_chunks_from_neon(chunk_ids: List[str]) -> Dict[str, dict]:
         }
     return result
 
-def call_reranker(query: str, texts: list[str]) -> list[float]:
-    logger.info(f"Calling reranker for {len(texts)} candidates")
+def call_reranker(query: str, texts: List[str]) -> List[float]:
+    logger.info(f"Reranker call | candidates={len(texts)}")
     payload = {"query": query, "texts": texts}
-    r = requests.post(RERANKER_URL, json=payload, timeout=60)
+
+    start = time.time()
+    r = requests.post(RERANKER_URL, json=payload, timeout=120)
+
     if r.status_code != 200:
-        logger.error(f"Reranker error: {r.text}")
+        logger.error(f"Reranker error | {r.text}")
         raise RuntimeError(r.text)
-    scores = r.json()["scores"]
-    logger.info("Reranker returned scores successfully")
-    return scores
+
+    logger.info(f"Reranker success | time={round(time.time()-start,2)}s")
+    return r.json()["scores"]
 
 def build_context(chunks: list[dict]) -> str:
     blocks = []
     for c in chunks:
         blocks.append(
-            f"[Page ID: {c['page_id']}]\nSection: {c['section']}\n{c['text']}"
+            f"[Page ID: {c['page_id']}]\n"
+            f"Section: {c['section']}\n"
+            f"{c['text']}"
         )
-    return "\n\n".join(blocks)
-
-import time
+    context = "\n\n".join(blocks)
+    logger.info(f"Context built | chars={len(context)}")
+    return context
 
 def call_groq_llm(query: str, context: str) -> str:
     system_prompt = (
         "You are an internal company knowledge assistant. "
         "Answer only using the provided context. "
-        "If the answer is not in the context, reply: 'Not found in knowledge base.'"
-        "If the answer is not explicitly stated in the context, do not use outside knowledge."
+        "If the answer is not explicitly in the context, reply: 'Not found in knowledge base.' "
+        "Do not use outside knowledge."
     )
 
     user_prompt = f"Context:\n{context}\n\nQuestion: {query}"
@@ -123,7 +144,7 @@ def call_groq_llm(query: str, context: str) -> str:
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.2,
-        "max_tokens": 800,
+        "max_tokens": 800
     }
 
     headers = {
@@ -131,65 +152,31 @@ def call_groq_llm(query: str, context: str) -> str:
         "Content-Type": "application/json"
     }
 
-    logger.info(
-        "Calling Groq LLM | model=%s | context_chars=%d | query_chars=%d",
-        GROQ_MODEL,
-        len(context),
-        len(query)
-    )
+    logger.info("Groq call started")
+    start = time.time()
 
-    start_time = time.time()
-
-    r = requests.post(
-        GROQ_URL,
-        headers=headers,
-        json=payload,
-        timeout=60
-    )
-
-    duration = round(time.time() - start_time, 2)
-
-    logger.info(
-        "Groq response received | status=%s | duration=%ss",
-        r.status_code,
-        duration
-    )
+    r = requests.post(GROQ_URL, headers=headers, json=payload, timeout=120)
 
     if r.status_code != 200:
-        logger.error(
-            "Groq LLM error | status=%s | body=%s",
-            r.status_code,
-            r.text
-        )
-        raise RuntimeError(f"Groq API error: {r.text}")
+        logger.error(f"Groq error | {r.text}")
+        raise RuntimeError(r.text)
 
-    data = r.json()
-
-    # Optional: token usage logging (Groq supports this)
-    usage = data.get("usage")
-    if usage:
-        logger.info(
-            "Groq token usage | prompt=%s | completion=%s | total=%s",
-            usage.get("prompt_tokens"),
-            usage.get("completion_tokens"),
-            usage.get("total_tokens")
-        )
-
-    answer = data["choices"][0]["message"]["content"]
-
-    logger.info(
-        "Groq completion success | answer_chars=%d | preview='%s'",
-        len(answer),
-        answer[:200].replace("\n", " ")
-    )
-
+    answer = r.json()["choices"][0]["message"]["content"]
+    logger.info(f"Groq success | answer_chars={len(answer)} | time={round(time.time()-start,2)}s")
     return answer
+
+def validate_answer_length(answer: str) -> bool:
+    logger.info("Running length guardrail")
+    result = length_guard.validate(answer)
+    return result.validation_passed
 
 @app.post("/query")
 def run_query(req: QueryRequest):
+    request_id = os.urandom(4).hex()
+    logger.info(f"[{request_id}] Query received")
+
     try:
         query = req.query
-        logger.info(f"Received query: {query}")
 
         chunk_scores = search_with_text(chunks_index, KB_CHUNKS_INDEX, query, TOP_K_CHUNKS)
         if not chunk_scores:
@@ -201,39 +188,46 @@ def run_query(req: QueryRequest):
         if not chunk_metadata:
             return {"query": query, "answer": "Not found in knowledge base.", "sources": []}
 
-        fused_candidates = []
-
+        fused = []
         for chunk_id, chunk_score in chunk_scores.items():
             if chunk_id not in chunk_metadata:
                 continue
+
             meta = chunk_metadata[chunk_id]
-            page_id = meta["page_id"]
-            page_score = page_scores.get(str(page_id), 0.0)
+            page_score = page_scores.get(str(meta["page_id"]), 0.0)
+
             fused_score = (W_CHUNK * chunk_score) + (W_PAGE * page_score)
-            fused_candidates.append({
+
+            fused.append({
                 "chunk_id": chunk_id,
-                "page_id": page_id,
+                "page_id": meta["page_id"],
                 "section": meta["section"],
                 "text": meta["text"],
                 "fused_score": fused_score
             })
 
-        if not fused_candidates:
-            return {"query": query, "answer": "Not found in knowledge base.", "sources": []}
-
-        texts = [item["text"] for item in fused_candidates]
+        texts = [f["text"] for f in fused]
         rerank_scores = call_reranker(query, texts)
 
-        for item, score in zip(fused_candidates, rerank_scores):
+        for item, score in zip(fused, rerank_scores):
             item["rerank_score"] = score
 
-        fused_candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
-
-        top_chunks = fused_candidates[:FINAL_TOP_K]
+        fused.sort(key=lambda x: x["rerank_score"], reverse=True)
+        top_chunks = fused[:FINAL_TOP_K]
 
         context = build_context(top_chunks)
 
         answer = call_groq_llm(query, context)
+
+        if not validate_answer_length(answer):
+            logger.warning("Length guardrail blocked output")
+            return {
+                "query": query,
+                "answer": "LLM produced invalid output. Please retry.",
+                "sources": []
+            }
+
+        logger.info(f"[{request_id}] Query completed successfully")
 
         return {
             "query": query,
@@ -242,5 +236,5 @@ def run_query(req: QueryRequest):
         }
 
     except Exception as e:
-        logger.error(f"Query failed: {e}", exc_info=True)
+        logger.error(f"[{request_id}] Query failed | {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
