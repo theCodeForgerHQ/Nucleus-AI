@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from guardrails import Guard
-from guardrails.hub import ValidLength   
+from guardrails.hub import ValidLength
 
 load_dotenv()
 
@@ -26,6 +26,10 @@ PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
 NEON_DB_URL = os.environ["NEON_DB_URL"]
 RERANKER_URL = os.environ["RERANKER_URL"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+
+# NEW: Local NLI service exposed via ngrok
+LOCAL_NLI_URL = os.environ["LOCAL_NLI_URL"]  
+# Example: https://e23e24116767.ngrok-free.app/nli
 
 KB_CHUNKS_INDEX = "kb-chunks"
 KB_PAGES_INDEX = "kb-pages"
@@ -44,7 +48,6 @@ length_guard = Guard().use_many(
     ValidLength(min=20, max=4000)
 )
 
-logger.info("Initializing Pinecone client")
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
 chunks_index = pc.Index(KB_CHUNKS_INDEX)
@@ -54,6 +57,7 @@ app = FastAPI()
 
 class QueryRequest(BaseModel):
     query: str
+
 
 def search_with_text(index, index_name: str, text: str, top_k: int):
     logger.info(f"Pinecone search | index={index_name} | top_k={top_k}")
@@ -71,6 +75,7 @@ def search_with_text(index, index_name: str, text: str, top_k: int):
     logger.info(f"Pinecone results | index={index_name} | hits={len(hits)} | time={round(time.time()-start,2)}s")
 
     return {hit["_id"]: hit["_score"] for hit in hits}
+
 
 def fetch_chunks_from_neon(chunk_ids: List[str]) -> Dict[str, dict]:
     logger.info(f"Neon fetch | chunk_ids={len(chunk_ids)}")
@@ -101,6 +106,7 @@ def fetch_chunks_from_neon(chunk_ids: List[str]) -> Dict[str, dict]:
         }
     return result
 
+
 def call_reranker(query: str, texts: List[str]) -> List[float]:
     logger.info(f"Reranker call | candidates={len(texts)}")
     payload = {"query": query, "texts": texts}
@@ -115,6 +121,7 @@ def call_reranker(query: str, texts: List[str]) -> List[float]:
     logger.info(f"Reranker success | time={round(time.time()-start,2)}s")
     return r.json()["scores"]
 
+
 def build_context(chunks: list[dict]) -> str:
     blocks = []
     for c in chunks:
@@ -126,6 +133,7 @@ def build_context(chunks: list[dict]) -> str:
     context = "\n\n".join(blocks)
     logger.info(f"Context built | chars={len(context)}")
     return context
+
 
 def call_groq_llm(query: str, context: str) -> str:
     system_prompt = (
@@ -165,10 +173,40 @@ def call_groq_llm(query: str, context: str) -> str:
     logger.info(f"Groq success | answer_chars={len(answer)} | time={round(time.time()-start,2)}s")
     return answer
 
+
 def validate_answer_length(answer: str) -> bool:
     logger.info("Running length guardrail")
     result = length_guard.validate(answer)
     return result.validation_passed
+
+
+# ✅ UPDATED: Call your local NLI service via ngrok
+def verify_answer_with_nli(context: str, answer: str, threshold: float = 0.75) -> bool:
+    logger.info("Local NLI verification started")
+    start = time.time()
+
+    payload = {
+        "context": context,
+        "answer": answer
+    }
+
+    try:
+        r = requests.post(LOCAL_NLI_URL, json=payload, timeout=120)
+    except Exception as e:
+        logger.error(f"Local NLI request failed: {e}")
+        return False
+
+    if r.status_code != 200:
+        logger.error(f"Local NLI error | {r.text}")
+        return False
+
+    result = r.json()
+    entailment_score = result["entailment_score"]
+
+    logger.info(f"Local NLI entailment score = {entailment_score} | time={round(time.time()-start,2)}s")
+
+    return entailment_score >= threshold
+
 
 @app.post("/query")
 def run_query(req: QueryRequest):
@@ -195,7 +233,6 @@ def run_query(req: QueryRequest):
 
             meta = chunk_metadata[chunk_id]
             page_score = page_scores.get(str(meta["page_id"]), 0.0)
-
             fused_score = (W_CHUNK * chunk_score) + (W_PAGE * page_score)
 
             fused.append({
@@ -224,6 +261,14 @@ def run_query(req: QueryRequest):
             return {
                 "query": query,
                 "answer": "LLM produced invalid output. Please retry.",
+                "sources": []
+            }
+
+        if not verify_answer_with_nli(context, answer):
+            logger.warning("NLI guard blocked hallucinated answer")
+            return {
+                "query": query,
+                "answer": "Answer could not be verified against knowledge base.",
                 "sources": []
             }
 
