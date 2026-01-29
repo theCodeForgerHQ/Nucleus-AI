@@ -12,11 +12,14 @@ from pinecone import Pinecone
 from common.analytics import (
     record_stage_execution,
     record_processing_result,
+    init_analytics_schema,
 )
 from jobs.page_processor.helpers.embedder.hf_embedder import embed
 from jobs.page_processor.helpers.extractors.image_extractor import extract_images
 from jobs.page_processor.helpers.extractors.text_processor import extract_tables, html_to_markdown
 from jobs.common.confluence_pages import fetch_page_ids
+init_analytics_schema()
+
 
 CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"]
 EMAIL = os.environ["CONFLUENCE_AUTH_USER"]

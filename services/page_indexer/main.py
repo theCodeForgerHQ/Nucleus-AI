@@ -9,7 +9,9 @@ from pinecone import Pinecone
 from common.analytics import (
     record_stage_execution,
     record_indexing_result,
+    init_analytics_schema
 )
+init_analytics_schema()
 
 DATABASE_URL = os.environ["NEON_DB_URL"]
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]

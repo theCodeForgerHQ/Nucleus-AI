@@ -10,6 +10,8 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    volumes:
+      - ./metrics.duckdb:/data/metrics.duckdb
 
   page-indexer-trigger:
     build:
@@ -22,6 +24,8 @@ services:
     profiles:
       - trigger
     restart: "no"
+    volumes:
+      - ./metrics.duckdb:/data/metrics.duckdb
 
   page-processor-oneoff:
     build:
@@ -32,3 +36,5 @@ services:
     profiles:
       - trigger
     restart: "no"
+    volumes:
+      - ./metrics.duckdb:/data/metrics.duckdb
