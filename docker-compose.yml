@@ -38,3 +38,11 @@ services:
     restart: "no"
     volumes:
       - ./metrics.duckdb:/data/metrics.duckdb
+
+  metabase:
+    image: metabase/metabase
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./duckdb_jdbc.jar:/plugins/duckdb_jdbc.jar
+      - ./metrics.duckdb:/data/metrics.duckdb
