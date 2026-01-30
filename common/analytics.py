@@ -8,7 +8,7 @@ def init_analytics_schema():
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS stage_execution (
-                page_id TEXT,
+                trace_id TEXT,
                 pipeline TEXT,
                 stage_name TEXT,
                 status TEXT,
@@ -21,6 +21,7 @@ def init_analytics_schema():
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS indexing_page_result (
+                trace_id TEXT,
                 page_id TEXT,
                 final_status TEXT,
                 total_latency_ms INTEGER,
@@ -32,6 +33,7 @@ def init_analytics_schema():
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS processing_page_result (
+                trace_id TEXT,
                 page_id TEXT,
                 final_status TEXT,
                 text_chunk_count INTEGER,
@@ -47,10 +49,30 @@ def init_analytics_schema():
             """
         )
 
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS query_result (
+                trace_id TEXT,
+                page_id TEXT,
+                query TEXT,
+                final_status TEXT,
+                top_k_chunks INTEGER,
+                context_chars INTEGER,
+                answer_chars INTEGER,
+                contradiction_score DOUBLE,
+                ragas_faithfulness DOUBLE,
+                ragas_answer_relevancy DOUBLE,
+                total_latency_ms INTEGER,
+                answered_at TIMESTAMP
+            )
+            """
+        )
+
 def _conn():
     return duckdb.connect(DB_PATH)
 
 def record_indexing_result(
+    trace_id,
     page_id,
     final_status,
     total_latency_ms,
@@ -59,9 +81,10 @@ def record_indexing_result(
         con.execute(
             """
             INSERT INTO indexing_page_result
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
+                trace_id,
                 page_id,
                 final_status,
                 total_latency_ms,
@@ -70,6 +93,7 @@ def record_indexing_result(
         )
 
 def record_processing_result(
+    trace_id,
     page_id,
     final_status,
     text_chunk_count,
@@ -85,9 +109,10 @@ def record_processing_result(
         con.execute(
             """
             INSERT INTO processing_page_result
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                trace_id,
                 page_id,
                 final_status,
                 text_chunk_count,
@@ -102,8 +127,43 @@ def record_processing_result(
             ),
         )
 
-def record_stage_execution(
+def record_query_result(
+    trace_id,
     page_id,
+    query,
+    final_status,
+    top_k_chunks,
+    context_chars,
+    answer_chars,
+    contradiction_score,
+    ragas_faithfulness,
+    ragas_answer_relevancy,
+    total_latency_ms,
+):
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO query_result
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                trace_id,
+                page_id,
+                query,
+                final_status,
+                top_k_chunks,
+                context_chars,
+                answer_chars,
+                contradiction_score,
+                ragas_faithfulness,
+                ragas_answer_relevancy,
+                total_latency_ms,
+                datetime.now(timezone.utc),
+            ),
+        )
+
+def record_stage_execution(
+    trace_id,
     pipeline,
     stage_name,
     status,
@@ -116,7 +176,7 @@ def record_stage_execution(
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                page_id,
+                trace_id,
                 pipeline,
                 stage_name,
                 status,

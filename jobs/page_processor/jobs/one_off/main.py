@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 import hashlib
 import psycopg2
 import requests
@@ -57,16 +58,16 @@ class HFEmbedding(BaseEmbedding):
 def sha256(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-def record_stage(page_id, stage, start, status):
+def record_stage(trace_id, stage, start, status):
     record_stage_execution(
-        page_id=page_id,
+        trace_id=trace_id,
         pipeline="processing",
         stage_name=stage,
         status=status,
         latency_ms=int((time.time() - start) * 1000),
     )
 
-def fetch_confluence_page(page_id):
+def fetch_confluence_page(page_id, trace_id):
     start = time.time()
     try:
         r = requests.get(
@@ -77,10 +78,10 @@ def fetch_confluence_page(page_id):
             timeout=15,
         )
         r.raise_for_status()
-        record_stage(page_id, "confluence", start, "success")
+        record_stage(trace_id, "confluence", start, "success")
         return r.json()["body"]["storage"]["value"]
     except Exception:
-        record_stage(page_id, "confluence", start, "failed")
+        record_stage(trace_id, "confluence", start, "failed")
         raise
 
 def flatten_tables(tables):
@@ -91,7 +92,7 @@ def flatten_tables(tables):
                 out.append(fact.strip())
     return out
 
-def upsert_neon_images(page_id, images):
+def upsert_neon_images(page_id, images, trace_id):
     start = time.time()
     try:
         now = datetime.now(timezone.utc)
@@ -114,12 +115,12 @@ def upsert_neon_images(page_id, images):
                             now,
                         ),
                     )
-        record_stage(page_id, "neon_images", start, "success")
+        record_stage(trace_id, "neon_images", start, "success")
     except Exception:
-        record_stage(page_id, "neon_images", start, "failed")
+        record_stage(trace_id, "neon_images", start, "failed")
         raise
 
-def upsert_neon_chunks(page_id, chunks, section_paths):
+def upsert_neon_chunks(page_id, chunks, section_paths, trace_id):
     start = time.time()
     try:
         now = datetime.now(timezone.utc)
@@ -142,12 +143,12 @@ def upsert_neon_chunks(page_id, chunks, section_paths):
                             page_id,
                         ),
                     )
-        record_stage(page_id, "neon_chunks", start, "success")
+        record_stage(trace_id, "neon_chunks", start, "success")
     except Exception:
-        record_stage(page_id, "neon_chunks", start, "failed")
+        record_stage(trace_id, "neon_chunks", start, "failed")
         raise
 
-def upsert_pinecone_chunks(page_id, chunks):
+def upsert_pinecone_chunks(page_id, chunks, trace_id):
     start = time.time()
     try:
         if chunks:
@@ -160,12 +161,12 @@ def upsert_pinecone_chunks(page_id, chunks):
                         for text in chunks[i : i + PINECONE_BATCH_SIZE]
                     ],
                 )
-        record_stage(page_id, "pinecone_chunks", start, "success")
+        record_stage(trace_id, "pinecone_chunks", start, "success")
     except Exception:
-        record_stage(page_id, "pinecone_chunks", start, "failed")
+        record_stage(trace_id, "pinecone_chunks", start, "failed")
         raise
 
-def upsert_pinecone_images(page_id, images):
+def upsert_pinecone_images(page_id, images, trace_id):
     start = time.time()
     try:
         if images:
@@ -181,22 +182,23 @@ def upsert_pinecone_images(page_id, images):
                         for img in images[i : i + PINECONE_IMAGE_BATCH_SIZE]
                     ],
                 )
-        record_stage(page_id, "pinecone_images", start, "success")
+        record_stage(trace_id, "pinecone_images", start, "success")
     except Exception:
-        record_stage(page_id, "pinecone_images", start, "failed")
+        record_stage(trace_id, "pinecone_images", start, "failed")
         raise
 
 def process_page(page_id):
+    trace_id = str(uuid.uuid4())
     start = time.time()
 
     try:
-        html = fetch_confluence_page(page_id)
+        html = fetch_confluence_page(page_id, trace_id)
 
         s = time.time()
         images = extract_images(html)
         tables = extract_tables(html)
         table_chunks = flatten_tables(tables)
-        record_stage(page_id, "extract", s, "success")
+        record_stage(trace_id, "extract", s, "success")
 
         s = time.time()
         markdown = html_to_markdown(html)
@@ -222,19 +224,20 @@ def process_page(page_id):
 
         text_chunks = [n.text for n in semantic_nodes if len(n.text.strip()) > 30]
         section_paths = [None] * len(text_chunks)
-        record_stage(page_id, "chunking", s, "success")
+        record_stage(trace_id, "chunking", s, "success")
 
-        upsert_neon_images(page_id, images)
-        upsert_neon_chunks(page_id, text_chunks, section_paths)
-        upsert_neon_chunks(page_id, table_chunks, [None] * len(table_chunks))
+        upsert_neon_images(page_id, images, trace_id)
+        upsert_neon_chunks(page_id, text_chunks, section_paths, trace_id)
+        upsert_neon_chunks(page_id, table_chunks, [None] * len(table_chunks), trace_id)
 
-        upsert_pinecone_chunks(page_id, text_chunks + table_chunks)
-        upsert_pinecone_images(page_id, images)
+        upsert_pinecone_chunks(page_id, text_chunks + table_chunks, trace_id)
+        upsert_pinecone_images(page_id, images, trace_id)
 
         lengths = [len(c) for c in text_chunks]
         avg_len = sum(lengths) // len(lengths) if lengths else 0
 
         record_processing_result(
+            trace_id=trace_id,
             page_id=page_id,
             final_status="success",
             text_chunk_count=len(text_chunks),
@@ -249,6 +252,7 @@ def process_page(page_id):
 
     except Exception:
         record_processing_result(
+            trace_id=trace_id,
             page_id=page_id,
             final_status="failed",
             text_chunk_count=0,
