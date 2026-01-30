@@ -42,13 +42,15 @@ services:
   metabase:
     image: metabase_duckdb:latest
     environment:
-      MB_SETUP_TOKEN: skip
+      MB_DB_TYPE: h2
+      MB_DB_FILE: /home/metabase/data/metabase.db
       MB_ANON_TRACKING_ENABLED: "false"
+      MB_LOAD_SAMPLE_CONTENT: "false"
     ports:
       - "3000:3000"
     volumes:
-      - metabase-data:/metabase-data
-      - ./metrics.duckdb:/data/metrics.duckdb
+      - metabase-data:/home/metabase/data
+      - ./metrics.duckdb:/home/metabase/data/metrics.duckdb
 
 volumes:
   metabase-data:
