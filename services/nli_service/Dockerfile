@@ -5,6 +5,13 @@ WORKDIR /app
 COPY services/nli_service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN python - <<EOF
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+MODEL_NAME = "MoritzLaurer/deberta-v3-base-mnli"
+AutoTokenizer.from_pretrained(MODEL_NAME)
+AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+EOF
+
 COPY common ./common
 COPY services/nli_service ./nli_service
 
