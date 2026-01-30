@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: services/page_indexer/Dockerfile
       args:
-        GUARDRAILS_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJnb29nbGUtb2F1dGgyfDEwNDE0MzgxNDA0MDkyNTAxNDkyMSIsImFwaUtleUlkIjoiMmM1YjkxOWItN2E2Ny00NjhmLTkxMGYtNDk1OWMyZDgwYjQ5Iiwic2NvcGUiOiJyZWFkOnBhY2thZ2VzIiwicGVybWlzc2lvbnMiOltdLCJpYXQiOjE3Njk1NzA1ODAsImV4cCI6NDkyMzE3MDU4MH0.qYVR0xBpm7D3cL-sMa1xforv45UGdrBLADsk5JLUJZc    
+        GUARDRAILS_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJnb29nbGUtb2F1dGgyfDEwNDE0MzgxNDA0MDkyNTAxNDkyMSIsImFwaUtleUlkIjoiMmM1YjkxOWItN2E2Ny00NjhmLTkxMGYtNDk1OWMyZDgwYjQ5Iiwic2NvcGUiOiJyZWFkOnBhY2thZ2VzIiwicGVybWlzc2lvbnMiOltdLCJpYXQiOjE3Njk1NzA1ODAsImV4cCI6NDkyMzE3MDU4MH0.qYVR0xBpm7D3cL-sMa1xforv45UGdrBLADsk5JLUJZc
     env_file:
       - .env
     restart: unless-stopped
@@ -68,7 +68,7 @@ services:
     env_file:
       - .env
     environment:
-      NLI_URL: http://nli-service:8080/
+      NLI_URL: http://nli-service:8080/nli
     restart: unless-stopped
     ports:
       - "8200:8200"

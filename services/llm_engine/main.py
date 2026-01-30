@@ -39,7 +39,7 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GOOGLE_API_KEY = os.environ["GOOGLE_API_KEY"]
 
 NLI_URL = os.environ["NLI_URL"]
-NLI_CONTRADICTION_THRESHOLD = 0.5
+NLI_CONTRADICTION_THRESHOLD = 0.7
 
 KB_CHUNKS_INDEX = "kb-chunks"
 KB_PAGES_INDEX = "kb-pages"
@@ -57,25 +57,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger("query-service")
 
+logger.info("Initializing Gemini LLM for RAGAS evaluation")
 evaluation_llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=GOOGLE_API_KEY,
     temperature=0
 )
 
+logger.info("Initializing HuggingFace embeddings for RAGAS evaluation")
 ragas_embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-ragas_metrics = [
-    faithfulness,
-    answer_relevancy
-]
+ragas_metrics = [faithfulness, answer_relevancy]
 
+logger.info("Initializing Guardrails")
 length_guard = Guard().use_many(
     ValidLength(min=20, max=4000)
 )
 
+logger.info("Initializing Pinecone client")
 pc = Pinecone(api_key=PINECONE_API_KEY)
 chunks_index = pc.Index(KB_CHUNKS_INDEX)
 pages_index = pc.Index(KB_PAGES_INDEX)
@@ -92,23 +93,25 @@ http_session = requests.Session()
 http_session.mount("https://", adapter)
 http_session.mount("http://", adapter)
 
+logger.info("HTTP session initialized with retries")
+
 class QueryRequest(BaseModel):
     query: str
 
 def search_with_text(index, index_name: str, text: str, top_k: int):
+    logger.info(f"Pinecone search started | index={index_name} | top_k={top_k}")
     start = time.time()
     response = index.search(
         namespace="default",
-        query={
-            "inputs": {"text": text},
-            "top_k": top_k
-        }
+        query={"inputs": {"text": text}, "top_k": top_k}
     )
     hits = response.get("result", {}).get("hits") or []
-    logger.info(f"Pinecone search | index={index_name} | hits={len(hits)} | time={round(time.time()-start,2)}s")
+    elapsed = round(time.time() - start, 2)
+    logger.info(f"Pinecone search completed | index={index_name} | hits={len(hits)} | time={elapsed}s")
     return {hit["_id"]: hit["_score"] for hit in hits}
 
 def fetch_chunks_from_neon(chunk_ids: List[str]) -> Dict[str, dict]:
+    logger.info(f"Neon fetch started | chunk_ids={len(chunk_ids)}")
     if not chunk_ids:
         return {}
     placeholders = ",".join(["%s"] * len(chunk_ids))
@@ -122,33 +125,28 @@ def fetch_chunks_from_neon(chunk_ids: List[str]) -> Dict[str, dict]:
         with conn.cursor() as cur:
             cur.execute(query, chunk_ids)
             rows = cur.fetchall()
-    logger.info(f"Neon fetch | rows={len(rows)} | time={round(time.time()-start,2)}s")
-    result = {}
-    for row in rows:
-        result[row[0]] = {
-            "text": row[1],
-            "section": row[2],
-            "page_id": row[3]
-        }
-    return result
+    elapsed = round(time.time() - start, 2)
+    logger.info(f"Neon fetch completed | rows={len(rows)} | time={elapsed}s")
+    return {
+        row[0]: {"text": row[1], "section": row[2], "page_id": row[3]}
+        for row in rows
+    }
 
 def call_reranker(query: str, texts: List[str]) -> List[float]:
-    payload = {"query": query, "texts": texts}
+    logger.info(f"Reranker call started | candidates={len(texts)}")
     start = time.time()
-    r = http_session.post(RERANKER_URL, json=payload, timeout=120)
+    r = http_session.post(RERANKER_URL, json={"query": query, "texts": texts}, timeout=120)
     r.raise_for_status()
-    logger.info(f"Reranker completed | time={round(time.time()-start,2)}s")
+    elapsed = round(time.time() - start, 2)
+    logger.info(f"Reranker completed | time={elapsed}s")
     return r.json()["scores"]
 
 def build_context(chunks: list[dict]) -> str:
-    blocks = []
-    for c in chunks:
-        blocks.append(
-            f"[Page ID: {c['page_id']}]\n"
-            f"Section: {c['section']}\n"
-            f"{c['text']}"
-        )
-    context = "\n\n".join(blocks)
+    logger.info("Building LLM context")
+    context = "\n\n".join(
+        f"[Page ID: {c['page_id']}]\nSection: {c['section']}\n{c['text']}"
+        for c in chunks
+    )
     logger.info(f"Context built | chars={len(context)}")
     return context
 
@@ -159,12 +157,11 @@ def call_groq_llm(query: str, context: str) -> str:
         "If the answer is not explicitly in the context, reply: "
         "'Not found in knowledge base.'"
     )
-    user_prompt = f"Context:\n{context}\n\nQuestion: {query}"
     payload = {
         "model": GROQ_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
         ],
         "temperature": 0.2,
         "max_tokens": 800
@@ -173,49 +170,57 @@ def call_groq_llm(query: str, context: str) -> str:
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
+    logger.info("Groq LLM call started")
     start = time.time()
     r = http_session.post(GROQ_URL, headers=headers, json=payload, timeout=120)
     r.raise_for_status()
     answer = r.json()["choices"][0]["message"]["content"]
-    logger.info(f"Groq completed | chars={len(answer)} | time={round(time.time()-start,2)}s")
+    elapsed = round(time.time() - start, 2)
+    logger.info(f"Groq LLM completed | chars={len(answer)} | time={elapsed}s")
     return answer
 
 def validate_answer_length(answer: str) -> bool:
+    logger.info("Running output length guardrail")
     result = length_guard.validate(answer)
+    logger.info(f"Guardrail result | passed={result.validation_passed}")
     return result.validation_passed
 
 def call_nli(premise: str, hypothesis: str) -> dict:
-    payload = {
-        "premise": premise,
-        "hypothesis": hypothesis
-    }
+    logger.info("NLI call started")
     start = time.time()
-    r = http_session.post(NLI_URL, json=payload, timeout=60)
+    r = http_session.post(NLI_URL, json={"premise": premise, "hypothesis": hypothesis}, timeout=60)
     r.raise_for_status()
-    logger.info(f"NLI completed | time={round(time.time()-start,2)}s")
-    return r.json()
+    elapsed = round(time.time() - start, 2)
+    result = r.json()
+    logger.info(f"NLI completed | time={elapsed}s | result={result}")
+    return result
 
 def evaluate_with_ragas(query: str, answer: str, top_chunks: List[Dict]):
     request_id = os.urandom(4).hex()
+    logger.info(f"[{request_id}] RAGAS evaluation started")
     try:
-        contexts = [c["text"] for c in top_chunks]
         dataset = Dataset.from_dict({
             "question": [query],
             "answer": [answer],
-            "contexts": [contexts]
+            "contexts": [[c["text"] for c in top_chunks]]
         })
-        evaluate(
+        start = time.time()
+        result = evaluate(
             dataset=dataset,
             metrics=ragas_metrics,
             llm=evaluation_llm,
             embeddings=ragas_embeddings
         )
+        elapsed = round(time.time() - start, 2)
+        logger.info(f"[{request_id}] RAGAS completed | time={elapsed}s")
+        logger.info(f"[{request_id}] RAGAS scores:\n{result}")
     except Exception as e:
         logger.error(f"[{request_id}] RAGAS failed | {e}", exc_info=True)
 
 @app.post("/query")
 def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
     request_id = os.urandom(4).hex()
+    logger.info(f"[{request_id}] Query received")
     try:
         query = req.query
         chunk_scores = search_with_text(chunks_index, KB_CHUNKS_INDEX, query, TOP_K_CHUNKS)
@@ -252,11 +257,8 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
         if not validate_answer_length(answer):
             return {"query": query, "answer": "Invalid LLM output.", "sources": []}
         background_tasks.add_task(evaluate_with_ragas, query, answer, top_chunks)
-        return {
-            "query": query,
-            "answer": answer,
-            "sources": top_chunks
-        }
+        logger.info(f"[{request_id}] Query completed successfully")
+        return {"query": query, "answer": answer, "sources": top_chunks}
     except Exception as e:
         logger.error(f"[{request_id}] Query failed | {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
