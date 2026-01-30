@@ -40,9 +40,15 @@ services:
       - ./metrics.duckdb:/data/metrics.duckdb
 
   metabase:
-    image: metabase/metabase
+    image: metabase_duckdb:latest
+    environment:
+      MB_SETUP_TOKEN: skip
+      MB_ANON_TRACKING_ENABLED: "false"
     ports:
       - "3000:3000"
     volumes:
-      - ./duckdb_jdbc.jar:/plugins/duckdb_jdbc.jar
+      - metabase-data:/metabase-data
       - ./metrics.duckdb:/data/metrics.duckdb
+
+volumes:
+  metabase-data:
