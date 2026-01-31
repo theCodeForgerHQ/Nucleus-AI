@@ -65,10 +65,12 @@ NLI_CONTRADICTION_THRESHOLD = 0.7
 
 KB_CHUNKS_INDEX = "kb-chunks"
 KB_PAGES_INDEX = "kb-pages"
+KB_IMAGES_INDEX = "kb-images"
 
 TOP_K_CHUNKS = 50
 TOP_K_PAGES = 20
 FINAL_TOP_K = 8
+TOP_K_IMAGES = 5
 
 W_CHUNK = 0.7
 W_PAGE = 0.3
@@ -92,6 +94,7 @@ length_guard = Guard().use_many(
 pc = Pinecone(api_key=PINECONE_API_KEY)
 chunks_index = pc.Index(KB_CHUNKS_INDEX)
 pages_index = pc.Index(KB_PAGES_INDEX)
+images_index = pc.Index(KB_IMAGES_INDEX)
 
 app = FastAPI()
 
@@ -167,6 +170,43 @@ def fetch_chunks_from_neon(trace_id, chunk_ids: List[str]) -> Dict[str, dict]:
             trace_id=trace_id,
             pipeline="query",
             stage_name="fetch_chunks",
+            status="failure",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        raise
+
+@traceable
+def fetch_images_from_neon(trace_id, image_ids: List[str]) -> List[Dict]:
+    start = time.time()
+    try:
+        if not image_ids:
+            return []
+        placeholders = ",".join(["%s"] * len(image_ids))
+        query = f"""
+            SELECT image_hash, page_id, image_src, caption
+            FROM kb_images
+            WHERE image_hash IN ({placeholders})
+        """
+        with psycopg2.connect(NEON_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, image_ids)
+                rows = cur.fetchall()
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="query",
+            stage_name="fetch_images",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return [
+            {"image_hash": row[0], "page_id": row[1], "url": row[2], "caption": row[3]}
+            for row in rows
+        ]
+    except Exception:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="query",
+            stage_name="fetch_images",
             status="failure",
             latency_ms=int((time.time() - start) * 1000),
         )
@@ -365,7 +405,7 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
                 None,
                 int((time.time() - start_total) * 1000),
             )
-            return {"query": query, "answer": "Not found in knowledge base.", "sources": []}
+            return {"query": query, "answer": "Not found in knowledge base.", "sources": [], "images": []}
 
         rerank_scores = call_reranker(trace_id, query, [f["text"] for f in fused])
         for item, score in zip(fused, rerank_scores):
@@ -373,6 +413,24 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
 
         fused.sort(key=lambda x: x["rerank_score"], reverse=True)
         top_chunks = fused[:FINAL_TOP_K]
+
+        final_images = []
+        if top_chunks:
+            top_chunk_page_ids = {c["page_id"] for c in top_chunks}
+            image_scores = search_with_text(trace_id, images_index, query, 20)
+            if image_scores:
+                fetched_images = fetch_images_from_neon(trace_id, list(image_scores.keys()))
+                ordered_images = sorted(fetched_images, key=lambda img: image_scores.get(img.get("image_hash"), 0), reverse=True)
+                
+                filtered_images = []
+                for img in ordered_images:
+                    if img.get("page_id") in top_chunk_page_ids:
+                        filtered_images.append({
+                            "url": img.get("url"),
+                            "page_id": img.get("page_id"),
+                            "caption": img.get("caption"),
+                        })
+                final_images = filtered_images[:TOP_K_IMAGES]
 
         context = build_context(top_chunks)
         answer = call_groq_llm(trace_id, query, context)
@@ -391,7 +449,7 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
                 None,
                 int((time.time() - start_total) * 1000),
             )
-            return {"query": query, "answer": "LLM response contradicted the knowledge base.", "sources": []}
+            return {"query": query, "answer": "LLM response contradicted the knowledge base.", "sources": [], "images": []}
 
         if not validate_answer_length(trace_id, answer):
             record_query_result(
@@ -406,7 +464,7 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
                 None,
                 int((time.time() - start_total) * 1000),
             )
-            return {"query": query, "answer": "Invalid LLM output.", "sources": []}
+            return {"query": query, "answer": "Invalid LLM output.", "sources": [], "images": []}
 
         background_tasks.add_task(
             evaluate_with_ragas,
@@ -438,7 +496,7 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
             for c in top_chunks
         ]
 
-        return {"query": query, "answer": answer, "sources": sources}
+        return {"query": query, "answer": answer, "sources": sources, "images": final_images}
 
     except Exception as e:
         record_query_result(
