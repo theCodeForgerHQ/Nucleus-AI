@@ -53,7 +53,6 @@ def init_analytics_schema():
             """
             CREATE TABLE IF NOT EXISTS query_result (
                 trace_id TEXT,
-                page_id TEXT,
                 query TEXT,
                 final_status TEXT,
                 top_k_chunks INTEGER,
@@ -129,7 +128,6 @@ def record_processing_result(
 
 def record_query_result(
     trace_id,
-    page_id,
     query,
     final_status,
     top_k_chunks,
@@ -144,11 +142,10 @@ def record_query_result(
         con.execute(
             """
             INSERT INTO query_result
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 trace_id,
-                page_id,
                 query,
                 final_status,
                 top_k_chunks,

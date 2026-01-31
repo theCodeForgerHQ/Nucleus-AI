@@ -4,6 +4,7 @@ import uuid
 import hashlib
 import psycopg2
 import requests
+import logging
 from datetime import datetime, timezone
 from requests.auth import HTTPBasicAuth
 from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser
@@ -19,8 +20,11 @@ from jobs.page_processor.helpers.embedder.hf_embedder import embed
 from jobs.page_processor.helpers.extractors.image_extractor import extract_images
 from jobs.page_processor.helpers.extractors.text_processor import extract_tables, html_to_markdown
 from jobs.common.confluence_pages import fetch_page_ids
+
 init_analytics_schema()
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+logger = logging.getLogger("page-processor")
 
 CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"]
 EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
@@ -148,7 +152,7 @@ def upsert_neon_chunks(page_id, chunks, section_paths, trace_id):
         record_stage(trace_id, "neon_chunks", start, "failed")
         raise
 
-def upsert_pinecone_chunks(page_id, chunks, trace_id):
+def upsert_pinecone_chunks(chunks, trace_id):
     start = time.time()
     try:
         if chunks:
@@ -166,7 +170,7 @@ def upsert_pinecone_chunks(page_id, chunks, trace_id):
         record_stage(trace_id, "pinecone_chunks", start, "failed")
         raise
 
-def upsert_pinecone_images(page_id, images, trace_id):
+def upsert_pinecone_images(images, trace_id):
     start = time.time()
     try:
         if images:
@@ -190,6 +194,7 @@ def upsert_pinecone_images(page_id, images, trace_id):
 def process_page(page_id):
     trace_id = str(uuid.uuid4())
     start = time.time()
+    status = "failed"
 
     try:
         html = fetch_confluence_page(page_id, trace_id)
@@ -230,8 +235,8 @@ def process_page(page_id):
         upsert_neon_chunks(page_id, text_chunks, section_paths, trace_id)
         upsert_neon_chunks(page_id, table_chunks, [None] * len(table_chunks), trace_id)
 
-        upsert_pinecone_chunks(page_id, text_chunks + table_chunks, trace_id)
-        upsert_pinecone_images(page_id, images, trace_id)
+        upsert_pinecone_chunks(text_chunks + table_chunks, trace_id)
+        upsert_pinecone_images(images, trace_id)
 
         lengths = [len(c) for c in text_chunks]
         avg_len = sum(lengths) // len(lengths) if lengths else 0
@@ -250,6 +255,9 @@ def process_page(page_id):
             total_latency_ms=int((time.time() - start) * 1000),
         )
 
+        status = "success"
+        return status
+
     except Exception:
         record_processing_result(
             trace_id=trace_id,
@@ -265,6 +273,8 @@ def process_page(page_id):
             total_latency_ms=int((time.time() - start) * 1000),
         )
         raise
+    finally:
+        logger.info(f"page_id={page_id} status={status}")
 
 def main():
     page_ids = fetch_page_ids()
@@ -283,6 +293,8 @@ def main():
 
         if last_err:
             failures += 1
+
+    logger.info(f"completed pages={len(page_ids)} failures={failures}")
 
     if failures:
         raise SystemExit(1)

@@ -12,6 +12,7 @@ from common.analytics import (
     record_indexing_result,
     init_analytics_schema
 )
+
 init_analytics_schema()
 
 DATABASE_URL = os.environ["NEON_DB_URL"]
@@ -150,6 +151,7 @@ def process_page(page_id: str):
     trace_id = str(uuid.uuid4())
     start = time.time()
     stage = None
+    init_state(page_id)
 
     try:
         stage = "confluence"
