@@ -226,7 +226,6 @@ def call_groq_llm(trace_id, query: str, context: str) -> str:
             ],
             temperature=0.2,
             max_tokens=800,
-            pl_tags=[trace_id, "rag_pipeline"],
         )
         answer = response.choices[0].message.content
         record_stage_execution(
@@ -313,10 +312,10 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
         query = req.query
 
         chunk_scores = search_with_text(
-            trace_id, chunks_index, KB_CHUNKS_INDEX, query, TOP_K_CHUNKS
+            trace_id, chunks_index, query, TOP_K_CHUNKS
         )
         page_scores = search_with_text(
-            trace_id, pages_index, KB_PAGES_INDEX, query, TOP_K_PAGES
+            trace_id, pages_index, query, TOP_K_PAGES
         )
 
         chunk_metadata = fetch_chunks_from_neon(trace_id, list(chunk_scores.keys()))
