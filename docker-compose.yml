@@ -5,8 +5,6 @@ services:
     build:
       context: .
       dockerfile: services/page_indexer/Dockerfile
-      secrets:
-        - guardrails_token
     env_file:
       - .env
     restart: unless-stopped
@@ -70,6 +68,8 @@ services:
     build:
       context: .
       dockerfile: services/llm_engine/Dockerfile
+      secrets:
+        - guardrails_token
     env_file:
       - .env
     environment:
