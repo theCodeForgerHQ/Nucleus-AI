@@ -27,10 +27,10 @@ from common.analytics import (
     record_stage_execution,
     record_query_result,
     init_analytics_schema,
+    get_conn
 )
 
 import promptlayer
-import openai
 from langsmith import traceable
 
 load_dotenv()
@@ -39,8 +39,11 @@ os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_API_KEY"] = os.environ.get("LANGCHAIN_API_KEY")
 os.environ["LANGCHAIN_PROJECT"] = os.environ.get("LANGCHAIN_PROJECT")
 
-promptlayer.api_key = os.environ.get("PROMPTLAYER_API_KEY")
-groq_client = openai.OpenAI(
+promptlayer_client = promptlayer.PromptLayer()
+
+OpenAI = promptlayer_client.openai.OpenAI
+
+groq_client = OpenAI(
     api_key=os.environ["GROQ_API_KEY"],
     base_url="https://api.groq.com/openai/v1",
 )
@@ -287,21 +290,36 @@ def call_nli(trace_id, premise: str, hypothesis: str) -> dict:
         )
         raise
 
-def evaluate_with_ragas(query: str, answer: str, top_chunks: List[Dict]):
-    try:
-        dataset = Dataset.from_dict({
-            "question": [query],
-            "answer": [answer],
-            "contexts": [[c["text"] for c in top_chunks]],
-        })
-        evaluate(
-            dataset=dataset,
-            metrics=ragas_metrics,
-            llm=evaluation_llm,
-            embeddings=ragas_embeddings,
+def evaluate_with_ragas(trace_id: str, query: str, answer: str, top_chunks: List[Dict]):
+    dataset = Dataset.from_dict({
+        "question": [query],
+        "answer": [answer],
+        "contexts": [[c["text"] for c in top_chunks]],
+    })
+
+    result = evaluate(
+        dataset=dataset,
+        metrics=ragas_metrics,
+        llm=evaluation_llm,
+        embeddings=ragas_embeddings,
+    )
+
+    faithfulness = result["faithfulness"][0]
+    answer_relevancy = result["answer_relevancy"][0]
+
+    update_ragas_scores(trace_id, faithfulness, answer_relevancy)
+
+def update_ragas_scores(trace_id, faithfulness, answer_relevancy):
+    with get_conn() as con:
+        con.execute(
+            """
+            UPDATE query_result
+            SET ragas_faithfulness = ?,
+                ragas_answer_relevancy = ?
+            WHERE trace_id = ?
+            """,
+            (faithfulness, answer_relevancy, trace_id),
         )
-    except Exception:
-        pass
 
 @app.post("/query")
 @traceable(run_type="chain", name="RAG Query")
@@ -390,7 +408,13 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
             )
             return {"query": query, "answer": "Invalid LLM output.", "sources": []}
 
-        background_tasks.add_task(evaluate_with_ragas, query, answer, top_chunks)
+        background_tasks.add_task(
+            evaluate_with_ragas,
+            trace_id,
+            query,
+            answer,
+            top_chunks
+        )
 
         record_query_result(
             trace_id,

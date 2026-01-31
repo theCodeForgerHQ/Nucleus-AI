@@ -70,6 +70,9 @@ def init_analytics_schema():
 def _conn():
     return duckdb.connect(DB_PATH)
 
+def get_conn():
+    return _conn()
+
 def record_indexing_result(
     trace_id,
     page_id,
