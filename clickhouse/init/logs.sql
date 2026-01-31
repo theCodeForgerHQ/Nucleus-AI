@@ -50,9 +50,9 @@ CREATE TABLE IF NOT EXISTS query_result
     top_k_chunks Int32,
     context_chars Int32,
     answer_chars Int32,
-    contradiction_score Float64,
-    ragas_faithfulness Float64,
-    ragas_answer_relevancy Float64,
+    contradiction_score Nullable(Float64),
+    ragas_faithfulness Nullable(Float64),
+    ragas_answer_relevancy Nullable(Float64),
     total_latency_ms Int32,
     answered_at DateTime
 )

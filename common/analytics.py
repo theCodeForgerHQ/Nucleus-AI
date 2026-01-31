@@ -1,17 +1,17 @@
 from datetime import datetime, timezone
 import clickhouse_connect
 
-_client = None
+import threading
+_client = threading.local()
 
 def _get_client():
-    global _client
-    if _client is None:
-        _client = clickhouse_connect.get_client(
+    if not hasattr(_client, "conn"):
+        _client.conn = clickhouse_connect.get_client(
             host="clickhouse",
             port=8123,
             database="analytics",
         )
-    return _client
+    return _client.conn
 
 def init_analytics_schema():
     """
