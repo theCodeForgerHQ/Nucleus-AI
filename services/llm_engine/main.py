@@ -29,7 +29,22 @@ from common.analytics import (
     init_analytics_schema,
 )
 
+import promptlayer
+import openai
+from langsmith import traceable
+
 load_dotenv()
+
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_API_KEY"] = os.environ.get("LANGCHAIN_API_KEY")
+os.environ["LANGCHAIN_PROJECT"] = os.environ.get("LANGCHAIN_PROJECT")
+
+promptlayer.api_key = os.environ.get("PROMPTLAYER_API_KEY")
+groq_client = openai.OpenAI(
+    api_key=os.environ["GROQ_API_KEY"],
+    base_url="https://api.groq.com/openai/v1",
+)
+
 init_analytics_schema()
 
 PROMPTLAYER_API_KEY = os.environ["PROMPTLAYER_API_KEY"]
@@ -90,7 +105,8 @@ http_session.mount("http://", adapter)
 class QueryRequest(BaseModel):
     query: str
 
-def search_with_text(trace_id, index, index_name: str, text: str, top_k: int):
+@traceable
+def search_with_text(trace_id, index, text: str, top_k: int):
     start = time.time()
     try:
         response = index.search(
@@ -116,6 +132,7 @@ def search_with_text(trace_id, index, index_name: str, text: str, top_k: int):
         )
         raise
 
+@traceable
 def fetch_chunks_from_neon(trace_id, chunk_ids: List[str]) -> Dict[str, dict]:
     start = time.time()
     try:
@@ -152,6 +169,7 @@ def fetch_chunks_from_neon(trace_id, chunk_ids: List[str]) -> Dict[str, dict]:
         )
         raise
 
+@traceable
 def call_reranker(trace_id, query: str, texts: List[str]) -> List[float]:
     start = time.time()
     try:
@@ -185,12 +203,13 @@ def build_context(chunks: list[dict]) -> str:
         for c in chunks
     )
 
+@traceable
 def call_groq_llm(trace_id, query: str, context: str) -> str:
     start = time.time()
     try:
-        payload = {
-            "model": GROQ_MODEL,
-            "messages": [
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
                 {
                     "role": "system",
                     "content": (
@@ -205,19 +224,11 @@ def call_groq_llm(trace_id, query: str, context: str) -> str:
                     "content": f"Context:\n{context}\n\nQuestion: {query}",
                 },
             ],
-            "temperature": 0.2,
-            "max_tokens": 800,
-        }
-        r = http_session.post(
-            GROQ_URL,
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=120,
+            temperature=0.2,
+            max_tokens=800,
+            pl_tags=[trace_id, "rag_pipeline"],
         )
-        r.raise_for_status()
+        answer = response.choices[0].message.content
         record_stage_execution(
             trace_id=trace_id,
             pipeline="query",
@@ -225,7 +236,7 @@ def call_groq_llm(trace_id, query: str, context: str) -> str:
             status="success",
             latency_ms=int((time.time() - start) * 1000),
         )
-        return r.json()["choices"][0]["message"]["content"]
+        return answer
     except Exception:
         record_stage_execution(
             trace_id=trace_id,
@@ -236,6 +247,7 @@ def call_groq_llm(trace_id, query: str, context: str) -> str:
         )
         raise
 
+@traceable
 def validate_answer_length(trace_id, answer: str) -> bool:
     start = time.time()
     result = length_guard.validate(answer)
@@ -248,6 +260,7 @@ def validate_answer_length(trace_id, answer: str) -> bool:
     )
     return result.validation_passed
 
+@traceable
 def call_nli(trace_id, premise: str, hypothesis: str) -> dict:
     start = time.time()
     try:
@@ -292,6 +305,7 @@ def evaluate_with_ragas(query: str, answer: str, top_chunks: List[Dict]):
         pass
 
 @app.post("/query")
+@traceable(run_type="chain", name="RAG Query")
 def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
     trace_id = str(uuid.uuid4())
     start_total = time.time()
