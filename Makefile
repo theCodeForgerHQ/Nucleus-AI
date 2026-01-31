@@ -20,3 +20,9 @@ indexer-trigger:
 
 processor-oneoff:
 	docker compose --profile trigger run --rm page-processor-oneoff
+
+indexer-build:
+	docker compose build page-indexer-trigger
+
+processor-build:
+	docker compose build page-processor-oneoff

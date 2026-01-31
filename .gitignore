@@ -17,3 +17,6 @@ venv/
 # IDE
 .vscode/
 .idea/
+
+/metrics.duckdb
+*.duckdb

@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 import hashlib
 import psycopg2
 import requests
@@ -9,13 +10,17 @@ from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeP
 from llama_index.core.schema import Document
 from llama_index.core.embeddings import BaseEmbedding
 from pinecone import Pinecone
-from common.logging import setup_logging
+from common.analytics import (
+    record_stage_execution,
+    record_processing_result,
+    init_analytics_schema,
+)
 from jobs.page_processor.helpers.embedder.hf_embedder import embed
 from jobs.page_processor.helpers.extractors.image_extractor import extract_images
 from jobs.page_processor.helpers.extractors.text_processor import extract_tables, html_to_markdown
 from jobs.common.confluence_pages import fetch_page_ids
+init_analytics_schema()
 
-logger = setup_logging("page-processing-job")
 
 CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"]
 EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
@@ -41,8 +46,7 @@ class HFEmbedding(BaseEmbedding):
     def _get_text_embeddings(self, texts):
         out = []
         for i in range(0, len(texts), HF_EMBED_BATCH_SIZE):
-            batch = texts[i : i + HF_EMBED_BATCH_SIZE]
-            out.extend(embed(batch))
+            out.extend(embed(texts[i : i + HF_EMBED_BATCH_SIZE]))
         return out
 
     def _get_query_embedding(self, query):
@@ -54,18 +58,31 @@ class HFEmbedding(BaseEmbedding):
 def sha256(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-def fetch_confluence_page(page_id):
-    logger.info("confluence_fetch_start", page_id=page_id)
-    r = requests.get(
-        f"{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}",
-        headers=HEADERS,
-        params={"expand": "body.storage"},
-        auth=AUTH,
-        timeout=15,
+def record_stage(trace_id, stage, start, status):
+    record_stage_execution(
+        trace_id=trace_id,
+        pipeline="processing",
+        stage_name=stage,
+        status=status,
+        latency_ms=int((time.time() - start) * 1000),
     )
-    r.raise_for_status()
-    logger.info("confluence_fetch_success", page_id=page_id)
-    return r.json()["body"]["storage"]["value"]
+
+def fetch_confluence_page(page_id, trace_id):
+    start = time.time()
+    try:
+        r = requests.get(
+            f"{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}",
+            headers=HEADERS,
+            params={"expand": "body.storage"},
+            auth=AUTH,
+            timeout=15,
+        )
+        r.raise_for_status()
+        record_stage(trace_id, "confluence", start, "success")
+        return r.json()["body"]["storage"]["value"]
+    except Exception:
+        record_stage(trace_id, "confluence", start, "failed")
+        raise
 
 def flatten_tables(tables):
     out = []
@@ -75,171 +92,197 @@ def flatten_tables(tables):
                 out.append(fact.strip())
     return out
 
-def upsert_neon_images(page_id, images):
-    logger.info("neon_images_upsert_start", page_id=page_id, count=len(images))
-    now = datetime.now(timezone.utc)
-    with psycopg2.connect(DATABASE_URL) as conn:
-        with conn.cursor() as cur:
-            for img in images:
-                h = sha256(img["src"] + img["caption"])
-                cur.execute(
-                    """
-                    INSERT INTO kb_images
-                    (image_hash, page_id, image_src, caption, is_active, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (image_hash) DO NOTHING
-                    """,
-                    (h, page_id, img["src"], img["caption"], True, now),
+def upsert_neon_images(page_id, images, trace_id):
+    start = time.time()
+    try:
+        now = datetime.now(timezone.utc)
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                for img in images:
+                    cur.execute(
+                        """
+                        INSERT INTO kb_images
+                        (image_hash, page_id, image_src, caption, is_active, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (image_hash) DO NOTHING
+                        """,
+                        (
+                            sha256(img["src"] + img["caption"]),
+                            page_id,
+                            img["src"],
+                            img["caption"],
+                            True,
+                            now,
+                        ),
+                    )
+        record_stage(trace_id, "neon_images", start, "success")
+    except Exception:
+        record_stage(trace_id, "neon_images", start, "failed")
+        raise
+
+def upsert_neon_chunks(page_id, chunks, section_paths, trace_id):
+    start = time.time()
+    try:
+        now = datetime.now(timezone.utc)
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                for text, section in zip(chunks, section_paths):
+                    cur.execute(
+                        """
+                        INSERT INTO kb_chunks
+                        (chunk_hash, raw_chunk, is_active, created_at, section_path, page_id)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (chunk_hash) DO NOTHING
+                        """,
+                        (
+                            sha256(text),
+                            text,
+                            True,
+                            now,
+                            section,
+                            page_id,
+                        ),
+                    )
+        record_stage(trace_id, "neon_chunks", start, "success")
+    except Exception:
+        record_stage(trace_id, "neon_chunks", start, "failed")
+        raise
+
+def upsert_pinecone_chunks(page_id, chunks, trace_id):
+    start = time.time()
+    try:
+        if chunks:
+            index = pc.Index("kb-chunks")
+            for i in range(0, len(chunks), PINECONE_BATCH_SIZE):
+                index.upsert_records(
+                    namespace="default",
+                    records=[
+                        {"_id": sha256(text), "raw_chunk": text}
+                        for text in chunks[i : i + PINECONE_BATCH_SIZE]
+                    ],
                 )
-    logger.info("neon_images_upsert_success", page_id=page_id)
+        record_stage(trace_id, "pinecone_chunks", start, "success")
+    except Exception:
+        record_stage(trace_id, "pinecone_chunks", start, "failed")
+        raise
 
-def upsert_neon_chunks(page_id, chunks, section_paths):
-    logger.info("neon_chunks_upsert_start", page_id=page_id, count=len(chunks))
-    now = datetime.now(timezone.utc)
-    with psycopg2.connect(DATABASE_URL) as conn:
-        with conn.cursor() as cur:
-            for text, section in zip(chunks, section_paths):
-                h = sha256(text)
-                cur.execute(
-                    """
-                    INSERT INTO kb_chunks
-                    (chunk_hash, raw_chunk, is_active, created_at, section_path, page_id)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (chunk_hash) DO NOTHING
-                    """,
-                    (h, text, True, now, section, page_id),
+def upsert_pinecone_images(page_id, images, trace_id):
+    start = time.time()
+    try:
+        if images:
+            index = pc.Index("kb-images")
+            for i in range(0, len(images), PINECONE_IMAGE_BATCH_SIZE):
+                index.upsert_records(
+                    namespace="default",
+                    records=[
+                        {
+                            "_id": sha256(img["src"] + img["caption"]),
+                            "caption": img["caption"],
+                        }
+                        for img in images[i : i + PINECONE_IMAGE_BATCH_SIZE]
+                    ],
                 )
-    logger.info("neon_chunks_upsert_success", page_id=page_id)
-
-def upsert_pinecone_chunks(chunks):
-    total = len(chunks)
-    logger.info("pinecone_chunks_upsert_start", count=total)
-    if not chunks:
-        return
-    index = pc.Index("kb-chunks")
-    for i in range(0, total, PINECONE_BATCH_SIZE):
-        batch = chunks[i : i + PINECONE_BATCH_SIZE]
-        records = [{"_id": sha256(text), "raw_chunk": text} for text in batch]
-        index.upsert_records(namespace="default", records=records)
-        logger.info(
-            "pinecone_chunks_upsert_batch_success",
-            batch_start=i,
-            batch_size=len(records),
-        )
-    logger.info("pinecone_chunks_upsert_success", count=total)
-
-def upsert_pinecone_images(images):
-    total = len(images)
-    logger.info("pinecone_images_upsert_start", count=total)
-    if not images:
-        return
-    index = pc.Index("kb-images")
-    for i in range(0, total, PINECONE_IMAGE_BATCH_SIZE):
-        batch = images[i : i + PINECONE_IMAGE_BATCH_SIZE]
-        records = [
-            {"_id": sha256(img["src"] + img["caption"]), "caption": img["caption"]}
-            for img in batch
-        ]
-        index.upsert_records(namespace="default", records=records)
-        logger.info(
-            "pinecone_images_upsert_batch_success",
-            batch_start=i,
-            batch_size=len(records),
-        )
-    logger.info("pinecone_images_upsert_success", count=total)
-
-def infer_section_paths(markdown, chunks):
-    current = None
-    for line in markdown.splitlines():
-        if line.startswith("#"):
-            current = line.lstrip("#").strip()
-    return [current for _ in chunks]
+        record_stage(trace_id, "pinecone_images", start, "success")
+    except Exception:
+        record_stage(trace_id, "pinecone_images", start, "failed")
+        raise
 
 def process_page(page_id):
-    logger.info("page_processing_start", page_id=page_id)
+    trace_id = str(uuid.uuid4())
+    start = time.time()
 
-    html = fetch_confluence_page(page_id)
+    try:
+        html = fetch_confluence_page(page_id, trace_id)
 
-    images = extract_images(html)
-    tables = extract_tables(html)
-    table_chunks = flatten_tables(tables)
-    table_section_paths = [None] * len(table_chunks)
+        s = time.time()
+        images = extract_images(html)
+        tables = extract_tables(html)
+        table_chunks = flatten_tables(tables)
+        record_stage(trace_id, "extract", s, "success")
 
-    logger.info(
-        "content_extraction_complete",
-        page_id=page_id,
-        images=len(images),
-        table_facts=len(table_chunks),
-    )
+        s = time.time()
+        markdown = html_to_markdown(html)
+        doc = Document(text=markdown)
+        structural = SentenceSplitter(
+            chunk_size=300,
+            chunk_overlap=50,
+            paragraph_separator="\n\n",
+        ).get_nodes_from_documents([doc])
 
-    markdown = html_to_markdown(html)
-    doc = Document(text=markdown)
-
-    structural = SentenceSplitter(
-        chunk_size=300,
-        chunk_overlap=50,
-        paragraph_separator="\n\n",
-    ).get_nodes_from_documents([doc])
-
-    embedder = HFEmbedding()
-    semantic = SemanticSplitterNodeParser(
-        embed_model=embedder,
-        buffer_size=1,
-        breakpoint_percentile_threshold=90,
-    )
-
-    semantic_nodes = []
-    for node in structural:
-        semantic_nodes.extend(
-            semantic.get_nodes_from_documents([Document(text=node.text)])
+        embedder = HFEmbedding()
+        semantic = SemanticSplitterNodeParser(
+            embed_model=embedder,
+            buffer_size=1,
+            breakpoint_percentile_threshold=90,
         )
 
-    text_chunks = [n.text for n in semantic_nodes if len(n.text.strip()) > 30]
-    section_paths = infer_section_paths(markdown, text_chunks)
+        semantic_nodes = []
+        for node in structural:
+            semantic_nodes.extend(
+                semantic.get_nodes_from_documents([Document(text=node.text)])
+            )
 
-    logger.info(
-        "chunking_complete",
-        page_id=page_id,
-        chunks=len(text_chunks),
-    )
+        text_chunks = [n.text for n in semantic_nodes if len(n.text.strip()) > 30]
+        section_paths = [None] * len(text_chunks)
+        record_stage(trace_id, "chunking", s, "success")
 
-    upsert_neon_images(page_id, images)
-    upsert_neon_chunks(page_id, text_chunks, section_paths)
-    upsert_neon_chunks(page_id, table_chunks, table_section_paths)
+        upsert_neon_images(page_id, images, trace_id)
+        upsert_neon_chunks(page_id, text_chunks, section_paths, trace_id)
+        upsert_neon_chunks(page_id, table_chunks, [None] * len(table_chunks), trace_id)
 
-    upsert_pinecone_chunks(text_chunks)
-    upsert_pinecone_chunks(table_chunks)
-    upsert_pinecone_images(images)
+        upsert_pinecone_chunks(page_id, text_chunks + table_chunks, trace_id)
+        upsert_pinecone_images(page_id, images, trace_id)
 
-    logger.info("page_processing_success", page_id=page_id)
+        lengths = [len(c) for c in text_chunks]
+        avg_len = sum(lengths) // len(lengths) if lengths else 0
+
+        record_processing_result(
+            trace_id=trace_id,
+            page_id=page_id,
+            final_status="success",
+            text_chunk_count=len(text_chunks),
+            table_chunk_count=len(table_chunks),
+            image_count=len(images),
+            avg_chunk_length=avg_len,
+            min_chunk_length=min(lengths) if lengths else 0,
+            max_chunk_length=max(lengths) if lengths else 0,
+            total_embeddings=len(text_chunks) + len(table_chunks),
+            total_latency_ms=int((time.time() - start) * 1000),
+        )
+
+    except Exception:
+        record_processing_result(
+            trace_id=trace_id,
+            page_id=page_id,
+            final_status="failed",
+            text_chunk_count=0,
+            table_chunk_count=0,
+            image_count=0,
+            avg_chunk_length=0,
+            min_chunk_length=0,
+            max_chunk_length=0,
+            total_embeddings=0,
+            total_latency_ms=int((time.time() - start) * 1000),
+        )
+        raise
 
 def main():
-    logger.info("job_start")
     page_ids = fetch_page_ids()
     failures = 0
 
     for page_id in page_ids:
         last_err = None
-        for attempt in range(1, RETRIES + 1):
+        for _ in range(RETRIES):
             try:
                 process_page(page_id)
-                logger.info("page_processed", page_id=page_id)
                 last_err = None
                 break
             except Exception as e:
                 last_err = str(e)
-                logger.warning(
-                    "page_retry_failed",
-                    page_id=page_id,
-                    attempt=attempt,
-                    error=last_err,
-                )
                 time.sleep(RETRY_SLEEP)
+
         if last_err:
             failures += 1
-            logger.error("page_failed", page_id=page_id, error=last_err)
-
-    logger.info("job_complete", total=len(page_ids), failures=failures)
 
     if failures:
         raise SystemExit(1)
