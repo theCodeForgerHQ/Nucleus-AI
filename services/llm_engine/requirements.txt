@@ -15,6 +15,6 @@ google-generativeai
 pydantic
 numpy
 scipy
-duckdb
+clickhouse_connect
 promptlayer
 

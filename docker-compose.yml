@@ -6,6 +6,22 @@ x-public-dns: &public_dns
     - 1.1.1.1
 
 services:
+  clickhouse:
+    <<: *public_dns
+    image: clickhouse/clickhouse-server:24
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    restart: unless-stopped
+
   page-indexer:
     <<: *public_dns
     build:
@@ -16,8 +32,6 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
-    volumes:
-      - ./metrics.duckdb:/data/metrics.duckdb
 
   page-indexer-trigger:
     <<: *public_dns
@@ -31,8 +45,6 @@ services:
     profiles:
       - trigger
     restart: "no"
-    volumes:
-      - ./metrics.duckdb:/data/metrics.duckdb
 
   page-processor-oneoff:
     <<: *public_dns
@@ -44,12 +56,10 @@ services:
     profiles:
       - trigger
     restart: "no"
-    volumes:
-      - ./metrics.duckdb:/data/metrics.duckdb
 
   metabase:
     <<: *public_dns
-    image: metabase_duckdb:latest
+    image: metabase/metabase:latest
     environment:
       MB_DB_TYPE: h2
       MB_DB_FILE: /home/metabase/data/metabase.db
@@ -59,7 +69,7 @@ services:
       - "3000:3000"
     volumes:
       - metabase-data:/home/metabase/data
-      - ./metrics.duckdb:/home/metabase/data/metrics.duckdb
+    restart: unless-stopped
 
   nli-service:
     <<: *public_dns
@@ -71,8 +81,6 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8000"
-    volumes:
-      - ./metrics.duckdb:/data/metrics.duckdb
 
   llm-engine:
     <<: *public_dns
@@ -89,8 +97,6 @@ services:
     restart: unless-stopped
     ports:
       - "8200:8000"
-    volumes:
-      - ./metrics.duckdb:/data/metrics.duckdb
 
   reranker-service:
     <<: *public_dns
@@ -109,3 +115,4 @@ secrets:
 
 volumes:
   metabase-data:
+  clickhouse-data:

@@ -2,7 +2,7 @@ fastapi
 uvicorn
 torch
 transformers
-duckdb
+clickhouse_connect
 sentencepiece
 tiktoken
 protobuf

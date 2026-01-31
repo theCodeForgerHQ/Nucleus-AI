@@ -7,4 +7,4 @@ llama-index
 beautifulsoup4
 markdownify
 pydantic
-duckdb
+clickhouse_connect

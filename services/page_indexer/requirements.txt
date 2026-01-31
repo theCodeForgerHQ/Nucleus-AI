@@ -3,4 +3,4 @@ uvicorn
 requests
 psycopg2-binary
 pinecone
-duckdb
+clickhouse_connect
