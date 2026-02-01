@@ -330,7 +330,7 @@ def call_nli(trace_id, premise: str, hypothesis: str) -> dict:
         )
         raise
 
-def evaluate_with_ragas(trace_id: str, query: str, answer: str, top_chunks: List[Dict]):
+def evaluate_with_ragas(trace_id, query, answer, top_chunks, contradiction_score, context_len, total_latency_ms):
     dataset = Dataset.from_dict({
         "question": [query],
         "answer": [answer],
@@ -344,22 +344,21 @@ def evaluate_with_ragas(trace_id: str, query: str, answer: str, top_chunks: List
         embeddings=ragas_embeddings,
     )
 
-    faithfulness = result["faithfulness"][0]
-    answer_relevancy = result["answer_relevancy"][0]
+    faithfulness_score = result["faithfulness"][0]
+    answer_relevancy_score = result["answer_relevancy"][0]
 
-    update_ragas_scores(trace_id, faithfulness, answer_relevancy)
-
-def update_ragas_scores(trace_id, faithfulness, answer_relevancy):
-    with get_conn() as con:
-        con.execute(
-            """
-            UPDATE query_result
-            SET ragas_faithfulness = ?,
-                ragas_answer_relevancy = ?
-            WHERE trace_id = ?
-            """,
-            (faithfulness, answer_relevancy, trace_id),
-        )
+    record_query_result(
+        trace_id,
+        query,
+        "success",
+        len(top_chunks),
+        context_len,
+        len(answer),
+        contradiction_score,
+        faithfulness_score,
+        answer_relevancy_score,
+        total_latency_ms,
+    )
 
 @app.post("/query")
 @traceable(run_type="chain", name="RAG Query")
@@ -421,22 +420,21 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
             if image_scores:
                 fetched_images = fetch_images_from_neon(trace_id, list(image_scores.keys()))
                 ordered_images = sorted(fetched_images, key=lambda img: image_scores.get(img.get("image_hash"), 0), reverse=True)
-                
-                filtered_images = []
                 for img in ordered_images:
                     if img.get("page_id") in top_chunk_page_ids:
-                        filtered_images.append({
+                        final_images.append({
                             "url": img.get("url"),
                             "page_id": img.get("page_id"),
                             "caption": img.get("caption"),
                         })
-                final_images = filtered_images[:TOP_K_IMAGES]
+                final_images = final_images[:TOP_K_IMAGES]
 
         context = build_context(top_chunks)
         answer = call_groq_llm(trace_id, query, context)
         nli = call_nli(trace_id, context, answer)
+        contradiction_score = nli.get("contradiction", 0.0)
 
-        if nli.get("contradiction", 0.0) >= NLI_CONTRADICTION_THRESHOLD:
+        if contradiction_score >= NLI_CONTRADICTION_THRESHOLD:
             record_query_result(
                 trace_id,
                 query,
@@ -444,7 +442,7 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
                 len(top_chunks),
                 len(context),
                 len(answer),
-                nli.get("contradiction", 0.0),
+                contradiction_score,
                 None,
                 None,
                 int((time.time() - start_total) * 1000),
@@ -459,32 +457,24 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
                 len(top_chunks),
                 len(context),
                 len(answer),
-                0.0,
+                contradiction_score,
                 None,
                 None,
                 int((time.time() - start_total) * 1000),
             )
             return {"query": query, "answer": "Invalid LLM output.", "sources": [], "images": []}
 
+        total_latency_ms = int((time.time() - start_total) * 1000)
+
         background_tasks.add_task(
             evaluate_with_ragas,
             trace_id,
             query,
             answer,
-            top_chunks
-        )
-
-        record_query_result(
-            trace_id,
-            query,
-            "success",
-            len(top_chunks),
+            top_chunks,
+            contradiction_score,
             len(context),
-            len(answer),
-            nli.get("contradiction", 0.0),
-            None,
-            None,
-            int((time.time() - start_total) * 1000),
+            total_latency_ms
         )
 
         sources = [
