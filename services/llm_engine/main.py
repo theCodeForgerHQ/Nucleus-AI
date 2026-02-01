@@ -479,8 +479,9 @@ def run_query(req: QueryRequest):
         faithfulness_score = None
         answer_relevancy_score = None
 
-        try:
-            if answer.strip() != "Not found in knowledge base.":
+        if answer.strip() != "Not found in knowledge base.":
+            ragas_start = time.time()
+            try:
                 ragas_result = evaluate_with_ragas(
                     query=query,
                     answer=answer,
@@ -488,8 +489,22 @@ def run_query(req: QueryRequest):
                 )
                 faithfulness_score = ragas_result["faithfulness"]
                 answer_relevancy_score = ragas_result["answer_relevancy"]
-        except Exception:
-            pass
+
+                record_stage_execution(
+                    trace_id=trace_id,
+                    pipeline="query",
+                    stage_name="ragas_evaluation",
+                    status="success",
+                    latency_ms=int((time.time() - ragas_start) * 1000),
+                )
+            except Exception:
+                record_stage_execution(
+                    trace_id=trace_id,
+                    pipeline="query",
+                    stage_name="ragas_evaluation",
+                    status="failure",
+                    latency_ms=int((time.time() - ragas_start) * 1000),
+                )
 
         total_latency_ms = int((time.time() - start_total) * 1000)
 
