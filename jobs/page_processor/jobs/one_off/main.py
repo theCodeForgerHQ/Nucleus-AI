@@ -191,6 +191,18 @@ def upsert_pinecone_images(images, trace_id):
         record_stage(trace_id, "pinecone_images", start, "failed")
         raise
 
+def mark_page_unstashed(page_id):
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_pages
+                SET is_stashed = FALSE
+                WHERE page_id = %s
+                """,
+                (page_id,),
+            )
+
 def process_page(page_id):
     trace_id = str(uuid.uuid4())
     start = time.time()
@@ -237,6 +249,8 @@ def process_page(page_id):
 
         upsert_pinecone_chunks(text_chunks + table_chunks, trace_id)
         upsert_pinecone_images(images, trace_id)
+
+        mark_page_unstashed(page_id)
 
         lengths = [len(c) for c in text_chunks]
         avg_len = sum(lengths) // len(lengths) if lengths else 0

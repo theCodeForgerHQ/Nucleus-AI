@@ -222,12 +222,20 @@ def retry_neon(req: dict):
     title = req["title"]
     created_at = datetime.fromisoformat(req["created_at"])
     trace_id = str(uuid.uuid4())
+    start = time.time()
     try:
         insert_neon(page_id, title, build_source_url(page_id), created_at, trace_id)
         update_state(page_id, "neon_status", "success")
         return {"page_id": page_id}
     except Exception as e:
         update_state(page_id, "neon_status", "failed", str(e))
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="indexing",
+            stage_name="neon",
+            status="failed",
+            latency_ms=0,
+        )
         raise HTTPException(status_code=500)
 
 @app.post("/retry/pinecone")
@@ -235,12 +243,20 @@ def retry_pinecone(req: dict):
     page_id = req["page_id"]
     title = req["title"]
     trace_id = str(uuid.uuid4())
+    start = time.time()
     try:
         upsert_pinecone(page_id, title, trace_id)
         update_state(page_id, "pinecone_status", "success")
         return {"page_id": page_id}
     except Exception as e:
         update_state(page_id, "pinecone_status", "failed", str(e))
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="indexing",
+            stage_name="pinecone",
+            status="failed",
+            latency_ms=0,
+        )
         raise HTTPException(status_code=500)
 
 @app.get("/health")
