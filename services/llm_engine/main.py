@@ -330,7 +330,8 @@ def call_nli(trace_id, premise: str, hypothesis: str) -> dict:
         )
         raise
 
-def evaluate_with_ragas(trace_id, query, answer, top_chunks, contradiction_score, context_len, total_latency_ms):
+@traceable(run_type="eval", name="RAGAS Evaluation")
+def evaluate_with_ragas(query, answer, top_chunks):
     dataset = Dataset.from_dict({
         "question": [query],
         "answer": [answer],
@@ -344,27 +345,18 @@ def evaluate_with_ragas(trace_id, query, answer, top_chunks, contradiction_score
         embeddings=ragas_embeddings,
     )
 
-    faithfulness_score = result["faithfulness"][0]
-    answer_relevancy_score = result["answer_relevancy"][0]
+    return {
+        "faithfulness": result["faithfulness"][0],
+        "answer_relevancy": result["answer_relevancy"][0],
+    }
 
-    record_query_result(
-        trace_id,
-        query,
-        "success",
-        len(top_chunks),
-        context_len,
-        len(answer),
-        contradiction_score,
-        faithfulness_score,
-        answer_relevancy_score,
-        total_latency_ms,
-    )
 
 @app.post("/query")
 @traceable(run_type="chain", name="RAG Query")
-def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
+def run_query(req: QueryRequest):
     trace_id = str(uuid.uuid4())
     start_total = time.time()
+
     try:
         query = req.query
 
@@ -404,7 +396,12 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
                 None,
                 int((time.time() - start_total) * 1000),
             )
-            return {"query": query, "answer": "Not found in knowledge base.", "sources": [], "images": []}
+            return {
+                "query": query,
+                "answer": "Not found in knowledge base.",
+                "sources": [],
+                "images": []
+            }
 
         rerank_scores = call_reranker(trace_id, query, [f["text"] for f in fused])
         for item, score in zip(fused, rerank_scores):
@@ -419,7 +416,12 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
             image_scores = search_with_text(trace_id, images_index, query, 20)
             if image_scores:
                 fetched_images = fetch_images_from_neon(trace_id, list(image_scores.keys()))
-                ordered_images = sorted(fetched_images, key=lambda img: image_scores.get(img.get("image_hash"), 0), reverse=True)
+                ordered_images = sorted(
+                    fetched_images,
+                    key=lambda img: image_scores.get(img.get("image_hash"), 0),
+                    reverse=True,
+                )
+
                 for img in ordered_images:
                     if img.get("page_id") in top_chunk_page_ids:
                         final_images.append({
@@ -447,7 +449,12 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
                 None,
                 int((time.time() - start_total) * 1000),
             )
-            return {"query": query, "answer": "LLM response contradicted the knowledge base.", "sources": [], "images": []}
+            return {
+                "query": query,
+                "answer": "LLM response contradicted the knowledge base.",
+                "sources": [],
+                "images": []
+            }
 
         if not validate_answer_length(trace_id, answer):
             record_query_result(
@@ -462,19 +469,41 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
                 None,
                 int((time.time() - start_total) * 1000),
             )
-            return {"query": query, "answer": "Invalid LLM output.", "sources": [], "images": []}
+            return {
+                "query": query,
+                "answer": "Invalid LLM output.",
+                "sources": [],
+                "images": []
+            }
+
+        faithfulness_score = None
+        answer_relevancy_score = None
+
+        try:
+            if answer.strip() != "Not found in knowledge base.":
+                ragas_result = evaluate_with_ragas(
+                    query=query,
+                    answer=answer,
+                    top_chunks=top_chunks,
+                )
+                faithfulness_score = ragas_result["faithfulness"]
+                answer_relevancy_score = ragas_result["answer_relevancy"]
+        except Exception:
+            pass
 
         total_latency_ms = int((time.time() - start_total) * 1000)
 
-        background_tasks.add_task(
-            evaluate_with_ragas,
+        record_query_result(
             trace_id,
             query,
-            answer,
-            top_chunks,
-            contradiction_score,
+            "success",
+            len(top_chunks),
             len(context),
-            total_latency_ms
+            len(answer),
+            contradiction_score,
+            faithfulness_score,
+            answer_relevancy_score,
+            total_latency_ms,
         )
 
         sources = [
@@ -486,7 +515,12 @@ def run_query(req: QueryRequest, background_tasks: BackgroundTasks):
             for c in top_chunks
         ]
 
-        return {"query": query, "answer": answer, "sources": sources, "images": final_images}
+        return {
+            "query": query,
+            "answer": answer,
+            "sources": sources,
+            "images": final_images,
+        }
 
     except Exception as e:
         record_query_result(
