@@ -191,6 +191,18 @@ def upsert_pinecone_images(images, trace_id):
         record_stage(trace_id, "pinecone_images", start, "failed")
         raise
 
+def mark_page_unstashed(page_id):
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_pages
+                SET is_stashed = FALSE
+                WHERE page_id = %s
+                """,
+                (page_id,),
+            )
+
 def process_page(page_id):
     trace_id = str(uuid.uuid4())
     start = time.time()
@@ -200,36 +212,44 @@ def process_page(page_id):
         html = fetch_confluence_page(page_id, trace_id)
 
         s = time.time()
-        images = extract_images(html)
-        tables = extract_tables(html)
-        table_chunks = flatten_tables(tables)
-        record_stage(trace_id, "extract", s, "success")
+        try:
+            images = extract_images(html)
+            tables = extract_tables(html)
+            table_chunks = flatten_tables(tables)
+            record_stage(trace_id, "extract", s, "success")
+        except Exception:
+            record_stage(trace_id, "extract", s, "failed")
+            raise
 
         s = time.time()
-        markdown = html_to_markdown(html)
-        doc = Document(text=markdown)
-        structural = SentenceSplitter(
-            chunk_size=300,
-            chunk_overlap=50,
-            paragraph_separator="\n\n",
-        ).get_nodes_from_documents([doc])
+        try:
+            markdown = html_to_markdown(html)
+            doc = Document(text=markdown)
+            structural = SentenceSplitter(
+                chunk_size=300,
+                chunk_overlap=50,
+                paragraph_separator="\n\n",
+            ).get_nodes_from_documents([doc])
 
-        embedder = HFEmbedding()
-        semantic = SemanticSplitterNodeParser(
-            embed_model=embedder,
-            buffer_size=1,
-            breakpoint_percentile_threshold=90,
-        )
-
-        semantic_nodes = []
-        for node in structural:
-            semantic_nodes.extend(
-                semantic.get_nodes_from_documents([Document(text=node.text)])
+            embedder = HFEmbedding()
+            semantic = SemanticSplitterNodeParser(
+                embed_model=embedder,
+                buffer_size=1,
+                breakpoint_percentile_threshold=90,
             )
 
-        text_chunks = [n.text for n in semantic_nodes if len(n.text.strip()) > 30]
-        section_paths = [None] * len(text_chunks)
-        record_stage(trace_id, "chunking", s, "success")
+            semantic_nodes = []
+            for node in structural:
+                semantic_nodes.extend(
+                    semantic.get_nodes_from_documents([Document(text=node.text)])
+                )
+
+            text_chunks = [n.text for n in semantic_nodes if len(n.text.strip()) > 30]
+            section_paths = [None] * len(text_chunks)
+            record_stage(trace_id, "chunking", s, "success")
+        except Exception:
+            record_stage(trace_id, "chunking", s, "failed")
+            raise
 
         upsert_neon_images(page_id, images, trace_id)
         upsert_neon_chunks(page_id, text_chunks, section_paths, trace_id)
@@ -237,6 +257,8 @@ def process_page(page_id):
 
         upsert_pinecone_chunks(text_chunks + table_chunks, trace_id)
         upsert_pinecone_images(images, trace_id)
+
+        mark_page_unstashed(page_id)
 
         lengths = [len(c) for c in text_chunks]
         avg_len = sum(lengths) // len(lengths) if lengths else 0
@@ -287,8 +309,8 @@ def main():
                 process_page(page_id)
                 last_err = None
                 break
-            except Exception as e:
-                last_err = str(e)
+            except Exception:
+                last_err = "failed"
                 time.sleep(RETRY_SLEEP)
 
         if last_err:
