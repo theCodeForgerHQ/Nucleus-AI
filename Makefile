@@ -29,3 +29,9 @@ indexer-build:
 
 processor-build:
 	docker compose build page-processor-oneoff
+
+indexer-retry:
+	docker compose --profile trigger run --rm page-indexer-retry
+
+indexer-retry-build:
+	docker compose build page-indexer-retry

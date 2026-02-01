@@ -46,6 +46,19 @@ services:
       - trigger
     restart: "no"
 
+  page-indexer-retry:
+    <<: *public_dns
+    build:
+      context: .
+      dockerfile: jobs/indexer_retry/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PAGE_INDEXER_URL: http://page-indexer:8000
+    profiles:
+      - trigger
+    restart: "no"
+
   page-processor-oneoff:
     <<: *public_dns
     build:
