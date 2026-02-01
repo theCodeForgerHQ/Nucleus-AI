@@ -1,0 +1,12 @@
+version: 3
+
+tunnels:
+  app:
+    proto: http
+    addr: 8000
+    domain: patient-husky-uniquely.ngrok-free.app
+
+    request_headers:
+      add:
+        ngrok-skip-browser-warning: "true"
+

@@ -2,9 +2,23 @@
   "key": "webhooks-app",
   "name": "Confluence Page Events Webhooks",
   "description": "This app listens for webhook events",
+  "baseUrl": "https://patient-husky-uniquely.ngrok-free.app",
+  "apiVersion": 1,
+
   "authentication": {
     "type": "jwt"
   },
+
+  "lifecycle": {
+    "installed": "/installed",
+    "uninstalled": "/uninstalled"
+  },
+
+  "scopes": [
+    "read",
+    "write"
+  ],
+
   "modules": {
     "webhooks": [
       {
@@ -25,3 +39,4 @@
     ]
   }
 }
+
