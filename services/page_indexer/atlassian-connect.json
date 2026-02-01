@@ -1,0 +1,27 @@
+{
+  "key": "webhooks-app",
+  "name": "Confluence Page Events Webhooks",
+  "description": "This app listens for webhook events",
+  "authentication": {
+    "type": "jwt"
+  },
+  "modules": {
+    "webhooks": [
+      {
+        "event": "page_created",
+        "url": "/page_created",
+        "name": "Page Created"
+      },
+      {
+        "event": "page_updated",
+        "url": "/page_updated",
+        "name": "Page Updated"
+      },
+      {
+        "event": "page_removed",
+        "url": "/page_removed",
+        "name": "Page Removed"
+      }
+    ]
+  }
+}

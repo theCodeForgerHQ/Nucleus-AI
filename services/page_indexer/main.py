@@ -3,7 +3,9 @@ import time
 import uuid
 import requests
 import psycopg2
+import pathlib
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi.responses import FileResponse
 from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from pinecone import Pinecone
@@ -29,11 +31,15 @@ pc_index = pc.Index("kb-pages")
 
 app = FastAPI()
 
+BASE_DIR = pathlib.Path(__file__).parent
+
 RETRIES = 3
 RETRY_SLEEP = 1.0
 
+
 def db():
     return psycopg2.connect(DATABASE_URL)
+
 
 def init_state(page_id):
     with db() as conn, conn.cursor() as cur:
@@ -46,6 +52,7 @@ def init_state(page_id):
             """,
             (page_id,),
         )
+
 
 def update_state(page_id, field, value, error=None):
     with db() as conn, conn.cursor() as cur:
@@ -60,6 +67,7 @@ def update_state(page_id, field, value, error=None):
             (value, error, page_id),
         )
 
+
 def retry(op):
     last_err = None
     for _ in range(RETRIES):
@@ -69,6 +77,7 @@ def retry(op):
             last_err = str(e)
             time.sleep(RETRY_SLEEP)
     raise RuntimeError(last_err)
+
 
 def fetch_confluence_page(page_id, trace_id):
     start = time.time()
@@ -100,8 +109,10 @@ def fetch_confluence_page(page_id, trace_id):
 
     return result
 
+
 def build_source_url(page_id):
     return f"{CONFLUENCE_BASE_URL}/pages/{page_id}"
+
 
 def insert_neon(page_id, title, source_url, created_at, trace_id):
     start = time.time()
@@ -128,6 +139,7 @@ def insert_neon(page_id, title, source_url, created_at, trace_id):
         latency_ms=int((time.time() - start) * 1000),
     )
 
+
 def upsert_pinecone(page_id, title, trace_id):
     start = time.time()
 
@@ -147,22 +159,27 @@ def upsert_pinecone(page_id, title, trace_id):
         latency_ms=int((time.time() - start) * 1000),
     )
 
+
 def process_page(page_id: str):
     trace_id = str(uuid.uuid4())
     start = time.time()
     stage = None
+    stage_start = None
     init_state(page_id)
 
     try:
         stage = "confluence"
+        stage_start = time.time()
         title, created_at = fetch_confluence_page(page_id, trace_id)
         update_state(page_id, "confluence_status", "success")
 
         stage = "neon"
+        stage_start = time.time()
         insert_neon(page_id, title, build_source_url(page_id), created_at, trace_id)
         update_state(page_id, "neon_status", "success")
 
         stage = "pinecone"
+        stage_start = time.time()
         upsert_pinecone(page_id, title, trace_id)
         update_state(page_id, "pinecone_status", "success")
 
@@ -177,14 +194,13 @@ def process_page(page_id: str):
         err = str(e)
         if stage:
             update_state(page_id, f"{stage}_status", "failed", err)
-
-        record_stage_execution(
-            trace_id=trace_id,
-            pipeline="indexing",
-            stage_name=stage,
-            status="failed",
-            latency_ms=0,
-        )
+            record_stage_execution(
+                trace_id=trace_id,
+                pipeline="indexing",
+                stage_name=stage,
+                status="failed",
+                latency_ms=int((time.time() - stage_start) * 1000),
+            )
 
         record_indexing_result(
             trace_id=trace_id,
@@ -193,65 +209,133 @@ def process_page(page_id: str):
             total_latency_ms=int((time.time() - start) * 1000),
         )
 
-@app.post("/")
+
+def mark_stashed(page_id: str):
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE kb_pages
+            SET is_stashed = TRUE,
+                updated_at = now()
+            WHERE page_id = %s
+            """,
+            (page_id,),
+        )
+
+
+def mark_inactive(page_id: str):
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE kb_pages
+            SET is_active = FALSE,
+                updated_at = now()
+            WHERE page_id = %s
+            """,
+            (page_id,),
+        )
+
+
+def extract_page_id(body: dict):
+    return body.get("page_id") or body.get("content", {}).get("id")
+
+
+@app.get("/atlassian-connect.json")
+def descriptor():
+    return FileResponse(BASE_DIR / "atlassian-connect.json")
+
+
+@app.post("/page_created")
 async def page_created(req: Request, bg: BackgroundTasks):
     body = await req.json()
-    page_id = body["page_id"]
+    page_id = extract_page_id(body)
+    if not page_id:
+        raise HTTPException(status_code=400)
     bg.add_task(process_page, page_id)
     return {"accepted": True, "page_id": page_id}
+
+
+@app.post("/page_updated")
+async def page_updated(req: Request):
+    body = await req.json()
+    page_id = extract_page_id(body)
+    if not page_id:
+        raise HTTPException(status_code=400)
+    mark_stashed(page_id)
+    return {"accepted": True, "page_id": page_id}
+
+
+@app.post("/page_removed")
+async def page_removed(req: Request):
+    body = await req.json()
+    page_id = extract_page_id(body)
+    if not page_id:
+        raise HTTPException(status_code=400)
+    mark_inactive(page_id)
+    return {"accepted": True, "page_id": page_id}
+
 
 @app.post("/retry/confluence")
 def retry_confluence(req: dict):
     page_id = req["page_id"]
     trace_id = str(uuid.uuid4())
     try:
-        fetch_confluence_page(page_id, trace_id)
+        title, created_at = fetch_confluence_page(page_id, trace_id)
         update_state(page_id, "confluence_status", "success")
-        return {"page_id": page_id, "stage": "confluence"}
+        return {
+            "page_id": page_id,
+            "title": title,
+            "created_at": created_at.isoformat(),
+        }
     except Exception as e:
         update_state(page_id, "confluence_status", "failed", str(e))
         raise HTTPException(status_code=500)
 
+
 @app.post("/retry/neon")
 def retry_neon(req: dict):
     page_id = req["page_id"]
+    title = req["title"]
+    created_at = datetime.fromisoformat(req["created_at"])
     trace_id = str(uuid.uuid4())
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT page_title, source_url, created_at FROM kb_pages WHERE page_id = %s",
-            (page_id,),
-        )
-        row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404)
-    title, source_url, created_at = row
+    start = time.time()
     try:
-        insert_neon(page_id, title, source_url, created_at, trace_id)
+        insert_neon(page_id, title, build_source_url(page_id), created_at, trace_id)
         update_state(page_id, "neon_status", "success")
-        return {"page_id": page_id, "stage": "neon"}
+        return {"page_id": page_id}
     except Exception as e:
         update_state(page_id, "neon_status", "failed", str(e))
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="indexing",
+            stage_name="neon",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
         raise HTTPException(status_code=500)
+
 
 @app.post("/retry/pinecone")
 def retry_pinecone(req: dict):
     page_id = req["page_id"]
+    title = req["title"]
     trace_id = str(uuid.uuid4())
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT page_title FROM kb_pages WHERE page_id = %s",
-            (page_id,),
-        )
-        row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404)
-    title = row[0]
+    start = time.time()
     try:
         upsert_pinecone(page_id, title, trace_id)
         update_state(page_id, "pinecone_status", "success")
-        return {"page_id": page_id, "stage": "pinecone"}
+        return {"page_id": page_id}
     except Exception as e:
+        update_state(page_id, "pinecone_status", "failed", str(e))
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="indexing",
+            stage_name="pinecone",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
         raise HTTPException(status_code=500)
+
 
 @app.get("/health")
 def health():
