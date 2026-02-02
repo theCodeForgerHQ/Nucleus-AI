@@ -110,6 +110,7 @@ http_session.mount("http://", adapter)
 
 class QueryRequest(BaseModel):
     query: str
+    history: List[Dict[str, str]] = []
 
 @traceable
 def search_with_text(trace_id, index, text: str, top_k: int):
@@ -247,26 +248,32 @@ def build_context(chunks: list[dict]) -> str:
     )
 
 @traceable
-def call_groq_llm(trace_id, query: str, context: str) -> str:
+def call_groq_llm(trace_id, query: str, context: str, history: List[Dict[str, str]] = []) -> str:
     start = time.time()
     try:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an internal company knowledge assistant. "
+                    "Answer only using the provided context. "
+                    "If the answer is not explicitly in the context, reply: "
+                    "'Not found in knowledge base.'"
+                ),
+            }
+        ]
+        
+        if history:
+            messages.extend(history)
+            
+        messages.append({
+            "role": "user",
+            "content": f"Context:\n{context}\n\nQuestion: {query}",
+        })
+
         response = groq_client.chat.completions.create(
             model=GROQ_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an internal company knowledge assistant. "
-                        "Answer only using the provided context. "
-                        "If the answer is not explicitly in the context, reply: "
-                        "'Not found in knowledge base.'"
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Context:\n{context}\n\nQuestion: {query}",
-                },
-            ],
+            messages=messages,
             temperature=0.2,
             max_tokens=800,
         )
@@ -359,6 +366,7 @@ def run_query(req: QueryRequest):
 
     try:
         query = req.query
+        history = req.history
 
         chunk_scores = search_with_text(
             trace_id, chunks_index, query, TOP_K_CHUNKS
@@ -432,7 +440,7 @@ def run_query(req: QueryRequest):
                 final_images = final_images[:TOP_K_IMAGES]
 
         context = build_context(top_chunks)
-        answer = call_groq_llm(trace_id, query, context)
+        answer = call_groq_llm(trace_id, query, context, history)
         nli = call_nli(trace_id, context, answer)
         contradiction_score = nli.get("contradiction", 0.0)
 
