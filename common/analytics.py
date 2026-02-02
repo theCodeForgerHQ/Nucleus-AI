@@ -108,8 +108,6 @@ def record_query_result(
     context_chars,
     answer_chars,
     contradiction_score,
-    ragas_faithfulness,
-    ragas_answer_relevancy,
     total_latency_ms,
 ):
     _get_client().insert(
@@ -122,8 +120,6 @@ def record_query_result(
             context_chars,
             answer_chars,
             contradiction_score,
-            ragas_faithfulness,
-            ragas_answer_relevancy,
             total_latency_ms,
             datetime.now(timezone.utc),
         ]],
@@ -135,8 +131,6 @@ def record_query_result(
             "context_chars",
             "answer_chars",
             "contradiction_score",
-            "ragas_faithfulness",
-            "ragas_answer_relevancy",
             "total_latency_ms",
             "answered_at",
         ],

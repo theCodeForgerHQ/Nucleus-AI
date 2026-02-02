@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 from typing import List, Dict
+import logging
 
 import psycopg2
 import requests
@@ -10,15 +11,11 @@ from urllib3.util.retry import Retry
 from pinecone import Pinecone
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from guardrails import Guard
 from guardrails.hub import ValidLength
-
-from ragas import evaluate
-from ragas.metrics import faithfulness, answer_relevancy
-from datasets import Dataset
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -27,11 +24,11 @@ from common.analytics import (
     record_stage_execution,
     record_query_result,
     init_analytics_schema,
-    get_conn
 )
 
 import promptlayer
 from langsmith import traceable
+import logging
 
 load_dotenv()
 
@@ -80,12 +77,6 @@ evaluation_llm = ChatGoogleGenerativeAI(
     google_api_key=GOOGLE_API_KEY,
     temperature=0,
 )
-
-ragas_embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
-
-ragas_metrics = [faithfulness, answer_relevancy]
 
 length_guard = Guard().use_many(
     ValidLength(min=20, max=4000)
@@ -337,27 +328,6 @@ def call_nli(trace_id, premise: str, hypothesis: str) -> dict:
         )
         raise
 
-@traceable(run_type="eval", name="RAGAS Evaluation")
-def evaluate_with_ragas(query, answer, top_chunks):
-    dataset = Dataset.from_dict({
-        "question": [query],
-        "answer": [answer],
-        "contexts": [[c["text"] for c in top_chunks]],
-    })
-
-    result = evaluate(
-        dataset=dataset,
-        metrics=ragas_metrics,
-        llm=evaluation_llm,
-        embeddings=ragas_embeddings,
-    )
-
-    return {
-        "faithfulness": result["faithfulness"][0],
-        "answer_relevancy": result["answer_relevancy"][0],
-    }
-
-
 @app.post("/query")
 @traceable(run_type="chain", name="RAG Query")
 def run_query(req: QueryRequest):
@@ -400,8 +370,6 @@ def run_query(req: QueryRequest):
                 0,
                 0,
                 0.0,
-                None,
-                None,
                 int((time.time() - start_total) * 1000),
             )
             return {
@@ -453,8 +421,6 @@ def run_query(req: QueryRequest):
                 len(context),
                 len(answer),
                 contradiction_score,
-                None,
-                None,
                 int((time.time() - start_total) * 1000),
             )
             return {
@@ -473,8 +439,6 @@ def run_query(req: QueryRequest):
                 len(context),
                 len(answer),
                 contradiction_score,
-                None,
-                None,
                 int((time.time() - start_total) * 1000),
             )
             return {
@@ -483,36 +447,6 @@ def run_query(req: QueryRequest):
                 "sources": [],
                 "images": []
             }
-
-        faithfulness_score = None
-        answer_relevancy_score = None
-
-        if answer.strip() != "Not found in knowledge base.":
-            ragas_start = time.time()
-            try:
-                ragas_result = evaluate_with_ragas(
-                    query=query,
-                    answer=answer,
-                    top_chunks=top_chunks,
-                )
-                faithfulness_score = ragas_result["faithfulness"]
-                answer_relevancy_score = ragas_result["answer_relevancy"]
-
-                record_stage_execution(
-                    trace_id=trace_id,
-                    pipeline="query",
-                    stage_name="ragas_evaluation",
-                    status="success",
-                    latency_ms=int((time.time() - ragas_start) * 1000),
-                )
-            except Exception:
-                record_stage_execution(
-                    trace_id=trace_id,
-                    pipeline="query",
-                    stage_name="ragas_evaluation",
-                    status="failure",
-                    latency_ms=int((time.time() - ragas_start) * 1000),
-                )
 
         total_latency_ms = int((time.time() - start_total) * 1000)
 
@@ -524,8 +458,6 @@ def run_query(req: QueryRequest):
             len(context),
             len(answer),
             contradiction_score,
-            faithfulness_score,
-            answer_relevancy_score,
             total_latency_ms,
         )
 
@@ -554,8 +486,6 @@ def run_query(req: QueryRequest):
             0,
             0,
             0.0,
-            None,
-            None,
             int((time.time() - start_total) * 1000),
         )
         raise HTTPException(status_code=500, detail=str(e))

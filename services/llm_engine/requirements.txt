@@ -8,8 +8,6 @@ langchain
 langchain-community
 langchain-google-genai
 sentence-transformers
-ragas
-datasets
 guardrails-ai
 google-generativeai
 pydantic
