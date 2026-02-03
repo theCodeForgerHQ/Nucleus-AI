@@ -266,8 +266,36 @@ def retry_pinecone(req: dict):
 def health():
     return {"status": "ok"}
 
-@app.post("/webhook")
+@app.post("/webhooks")
 async def receive_payload(request: Request):
     payload = await request.json()
     print(payload)
     return {"status": "ok"}
+
+def page_updated(page_id: str):
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE kb_pages
+            SET is_stashed = TRUE,
+                updated_at = now()
+            WHERE page_id = %s
+            """,
+            (page_id,),
+        )
+    return {"accepted": True, "page_id": page_id}
+
+def page_removed(page_id: str):
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE kb_pages
+            SET is_active = FALSE,
+                updated_at = now()
+            WHERE page_id = %s
+            """,
+            (page_id,),
+        )
+    return {"accepted": True, "page_id": page_id}
+
+

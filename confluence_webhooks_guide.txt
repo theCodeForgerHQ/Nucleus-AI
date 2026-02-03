@@ -3,7 +3,7 @@ curl -u ajayaditya2k6@gmail.com:ATATT3xFfGF03pj6oWJVHHSg_bwQGEpezX1ndz9gCSbGZBzu
   -H "Content-Type: application/json" \
   -d '{
     "name": "Nucleus AI",
-    "events": ["page_created","page_updated","page_removed"],
+    "events": ["page_created","page_updated","page_removed","page_trashed","page_restored","page_unarchived","page_archived"],
     "url": "https://patient-husky-uniquely.ngrok-free.app/webhooks",
     "enabled": true
   }' \
@@ -18,3 +18,5 @@ curl -u ajayaditya2k6@gmail.com:ATATT3xFfGF03pj6oWJVHHSg_bwQGEpezX1ndz9gCSbGZBzu
   -X DELETE \
   -H "Content-Type: application/json" \
   https://ajayadityalokchandra.atlassian.net/wiki/rest/webhooks/1.0/webhook/{webhookId}
+
+  #replace with webhook id for removal
