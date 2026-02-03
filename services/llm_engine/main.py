@@ -19,6 +19,7 @@ from guardrails.hub import ValidLength
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.tools import DuckDuckGoSearchRun
 
 from common.analytics import (
     record_stage_execution,
@@ -328,6 +329,45 @@ def call_nli(trace_id, premise: str, hypothesis: str) -> dict:
         )
         raise
 
+@traceable
+def call_web_search_fallback(trace_id, query: str) -> str:
+    start = time.time()
+    try:
+        search = DuckDuckGoSearchRun()
+        web_results = search.run(query)
+        prompt = f"""
+        The user asked: {query}
+        The following information was found on the web:
+        {web_results}
+        
+        Please provide a concise summary of these web findings. 
+        State clearly that this information is from the web and not the internal knowledge base.
+        """
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=800,
+        )
+        summary = response.choices[0].message.content
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="query",
+            stage_name="web_search",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return summary
+    except Exception:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="query",
+            stage_name="web_search",
+            status="failure",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return "Web search information could not be retrieved at this time."
+
 @app.post("/query")
 @traceable(run_type="chain", name="RAG Query")
 def run_query(req: QueryRequest):
@@ -372,9 +412,11 @@ def run_query(req: QueryRequest):
                 0.0,
                 int((time.time() - start_total) * 1000),
             )
+            web_findings = call_web_search_fallback(trace_id, query)
             return {
                 "query": query,
                 "answer": "Not found in knowledge base.",
+                "web_findings": web_findings,
                 "sources": [],
                 "images": []
             }
@@ -409,6 +451,11 @@ def run_query(req: QueryRequest):
 
         context = build_context(top_chunks)
         answer = call_groq_llm(trace_id, query, context, history)
+        
+        web_findings = None
+        if "Not found in knowledge base" in answer:
+            web_findings = call_web_search_fallback(trace_id, query)
+
         nli = call_nli(trace_id, context, answer)
         contradiction_score = nli.get("contradiction", 0.0)
 
@@ -473,6 +520,7 @@ def run_query(req: QueryRequest):
         return {
             "query": query,
             "answer": answer,
+            "web_findings": web_findings,
             "sources": sources,
             "images": final_images,
         }
