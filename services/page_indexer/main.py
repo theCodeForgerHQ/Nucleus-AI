@@ -265,3 +265,9 @@ def retry_pinecone(req: dict):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.post("/webhook")
+async def receive_payload(request: Request):
+    payload = await request.json()
+    print(payload)
+    return {"status": "ok"}
