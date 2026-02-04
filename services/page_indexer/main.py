@@ -267,53 +267,135 @@ def health():
     return {"status": "ok"}
 
 @app.post("/webhooks/page-created")
-async def page_created(request: Request):
+async def page_created(request: Request, background_tasks: BackgroundTasks):
     payload = await request.json()
-    print("Page Created Payload:", payload)
+    page_id = payload["page"]["idAsString"]
+
+    background_tasks.add_task(process_page, page_id)
     return {"status": "ok"}
+
 
 @app.post("/webhooks/page-updated")
-async def page_updated(request: Request):
+async def page_updated_webhook(request: Request, background_tasks: BackgroundTasks):
     payload = await request.json()
-    print("Page Updated Payload:", payload)
+    page_id = payload["page"]["idAsString"]
+    title = payload["page"]["title"]
+
+    background_tasks.add_task(page_updated, page_id)
+    background_tasks.add_task(page_title_updated, page_id, title)
     return {"status": "ok"}
+
 
 @app.post("/webhooks/page-deleted")
-async def page_deleted(request: Request):
+async def page_deleted(request: Request, background_tasks: BackgroundTasks):
     payload = await request.json()
-    print("Page Deleted Payload:", payload)
+    page_id = payload["page"]["idAsString"]
+
+    background_tasks.add_task(page_removed, page_id)
     return {"status": "ok"}
 
+
 @app.post("/webhooks/page-restored")
-async def page_restored(request: Request):
+async def page_restored(request: Request, background_tasks: BackgroundTasks):
     payload = await request.json()
-    print("Page Restored Payload:", payload)
+    page_id = payload["page"]["idAsString"]
+
+    background_tasks.add_task(page_restored, page_id)
     return {"status": "ok"}
 
 def page_updated(page_id: str):
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE kb_pages
-            SET is_stashed = TRUE,
-                updated_at = now()
-            WHERE page_id = %s
-            """,
-            (page_id,),
-        )
-    return {"accepted": True, "page_id": page_id}
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_pages
+                SET is_stashed = TRUE
+                WHERE page_id = %s
+                """,
+                (page_id,),
+            )
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to stash page in kb_pages (page_id={page_id})"
+        ) from e
 
 def page_removed(page_id: str):
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE kb_pages
-            SET is_active = FALSE,
-                updated_at = now()
-            WHERE page_id = %s
-            """,
-            (page_id,),
-        )
-    return {"accepted": True, "page_id": page_id}
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_chunks
+                SET is_active = FALSE
+                WHERE page_id = %s;
 
+                UPDATE kb_images
+                SET is_active = FALSE
+                WHERE page_id = %s;
+                """,
+                (page_id, page_id),
+            )
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to deactivate chunks/images (page_id={page_id})"
+        ) from e
 
+def page_restored(page_id: str):
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_chunks
+                SET is_active = TRUE
+                WHERE page_id = %s;
+
+                UPDATE kb_images
+                SET is_active = TRUE
+                WHERE page_id = %s;
+                """,
+                (page_id, page_id),
+            )
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to restore chunks/images (page_id={page_id})"
+        ) from e
+
+def page_title_updated(page_id: str, new_title: str):
+    trace_id = str(uuid.uuid4())
+
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT page_title FROM kb_pages WHERE page_id = %s",
+                (page_id,),
+            )
+            result = cur.fetchone()
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to fetch current title (page_id={page_id})"
+        ) from e
+
+    if not result:
+        return
+
+    current_title = result[0]
+
+    if current_title == new_title:
+        return
+
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE kb_pages SET page_title = %s WHERE page_id = %s",
+                (new_title, page_id),
+            )
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to update page title (page_id={page_id})"
+        ) from e
+
+    try:
+        upsert_pinecone(page_id, new_title, trace_id)
+    except Exception as e:
+        raise RuntimeError(
+            f"Pinecone upsert failed (page_id={page_id}, trace_id={trace_id})"
+        ) from e
