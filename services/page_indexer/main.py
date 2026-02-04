@@ -266,10 +266,28 @@ def retry_pinecone(req: dict):
 def health():
     return {"status": "ok"}
 
-@app.post("/webhooks")
-async def receive_payload(request: Request):
+@app.post("/webhooks/page-created")
+async def page_created(request: Request):
     payload = await request.json()
-    print(payload)
+    print("Page Created Payload:", payload)
+    return {"status": "ok"}
+
+@app.post("/webhooks/page-updated")
+async def page_updated(request: Request):
+    payload = await request.json()
+    print("Page Updated Payload:", payload)
+    return {"status": "ok"}
+
+@app.post("/webhooks/page-deleted")
+async def page_deleted(request: Request):
+    payload = await request.json()
+    print("Page Deleted Payload:", payload)
+    return {"status": "ok"}
+
+@app.post("/webhooks/page-restored")
+async def page_restored(request: Request):
+    payload = await request.json()
+    print("Page Restored Payload:", payload)
     return {"status": "ok"}
 
 def page_updated(page_id: str):
