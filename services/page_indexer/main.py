@@ -280,9 +280,10 @@ async def page_updated_webhook(request: Request, background_tasks: BackgroundTas
     payload = await request.json()
     page_id = payload["page"]["idAsString"]
     title = payload["page"]["title"]
+    trace_id = str(uuid.uuid4())
 
-    background_tasks.add_task(page_updated, page_id)
-    background_tasks.add_task(page_title_updated, page_id, title)
+    background_tasks.add_task(page_updated, trace_id, page_id)
+    background_tasks.add_task(page_title_updated, trace_id, page_id, title)
     return {"status": "ok"}
 
 
@@ -290,8 +291,9 @@ async def page_updated_webhook(request: Request, background_tasks: BackgroundTas
 async def page_deleted(request: Request, background_tasks: BackgroundTasks):
     payload = await request.json()
     page_id = payload["page"]["idAsString"]
+    trace_id = str(uuid.uuid4())
 
-    background_tasks.add_task(page_removed, page_id)
+    background_tasks.add_task(page_removed, trace_id, page_id)
     return {"status": "ok"}
 
 
@@ -299,11 +301,14 @@ async def page_deleted(request: Request, background_tasks: BackgroundTasks):
 async def page_restored(request: Request, background_tasks: BackgroundTasks):
     payload = await request.json()
     page_id = payload["page"]["idAsString"]
+    trace_id = str(uuid.uuid4())
 
-    background_tasks.add_task(page_restored, page_id)
+    background_tasks.add_task(page_restored, trace_id, page_id)
     return {"status": "ok"}
 
-def page_updated(page_id: str):
+
+def page_updated(trace_id: str, page_id: str):
+    start = time.time()
     try:
         with db() as conn, conn.cursor() as cur:
             cur.execute(
@@ -314,12 +319,28 @@ def page_updated(page_id: str):
                 """,
                 (page_id,),
             )
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_stashed",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
     except Exception as e:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_stashed",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
         raise RuntimeError(
             f"Failed to stash page in kb_pages (page_id={page_id})"
         ) from e
 
-def page_removed(page_id: str):
+
+def page_removed(trace_id: str, page_id: str):
+    start = time.time()
     try:
         with db() as conn, conn.cursor() as cur:
             cur.execute(
@@ -334,12 +355,28 @@ def page_removed(page_id: str):
                 """,
                 (page_id, page_id),
             )
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_deleted",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
     except Exception as e:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_deleted",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
         raise RuntimeError(
             f"Failed to deactivate chunks/images (page_id={page_id})"
         ) from e
 
-def page_restored(page_id: str):
+
+def page_restored(trace_id: str, page_id: str):
+    start = time.time()
     try:
         with db() as conn, conn.cursor() as cur:
             cur.execute(
@@ -354,14 +391,28 @@ def page_restored(page_id: str):
                 """,
                 (page_id, page_id),
             )
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_restored",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
     except Exception as e:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_restored",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
         raise RuntimeError(
             f"Failed to restore chunks/images (page_id={page_id})"
         ) from e
 
-def page_title_updated(page_id: str, new_title: str):
-    trace_id = str(uuid.uuid4())
 
+def page_title_updated(trace_id: str, page_id: str, new_title: str):
+    start = time.time()
     try:
         with db() as conn, conn.cursor() as cur:
             cur.execute(
@@ -369,33 +420,52 @@ def page_title_updated(page_id: str, new_title: str):
                 (page_id,),
             )
             result = cur.fetchone()
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to fetch current title (page_id={page_id})"
-        ) from e
 
-    if not result:
-        return
+        if not result:
+            record_stage_execution(
+                trace_id=trace_id,
+                pipeline="webhook",
+                stage_name="page_title_updated",
+                status="success",
+                latency_ms=int((time.time() - start) * 1000),
+            )
+            return
 
-    current_title = result[0]
+        current_title = result[0]
 
-    if current_title == new_title:
-        return
+        if current_title == new_title:
+            record_stage_execution(
+                trace_id=trace_id,
+                pipeline="webhook",
+                stage_name="page_title_updated",
+                status="success",
+                latency_ms=int((time.time() - start) * 1000),
+            )
+            return
 
-    try:
         with db() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE kb_pages SET page_title = %s WHERE page_id = %s",
                 (new_title, page_id),
             )
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to update page title (page_id={page_id})"
-        ) from e
 
-    try:
         upsert_pinecone(page_id, new_title, trace_id)
+
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_title_updated",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
     except Exception as e:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_title_updated",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
         raise RuntimeError(
-            f"Pinecone upsert failed (page_id={page_id}, trace_id={trace_id})"
+            f"Pinecone or DB update failed (page_id={page_id}, trace_id={trace_id})"
         ) from e
