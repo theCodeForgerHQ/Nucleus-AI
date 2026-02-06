@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { postQuery, type QueryResponse, type HistoryMessage } from "@/lib/api";
 import { TerminalBlock } from "@/components/TerminalBlock";
 import { TerminalInput } from "@/components/TerminalInput";
+import { ImagesPanel } from "@/components/ImagesPanel";
 
 type Block = {
   id: string;
@@ -88,6 +89,13 @@ export default function Home() {
     });
   }, [blocks]);
 
+  // Images from the most recent response that has images (for right panel)
+  const sidebarImages =
+    [...blocks]
+      .reverse()
+      .find((b) => b.response && b.response.images.length > 0)?.response
+      ?.images ?? [];
+
   return (
     <div className="flex flex-col h-screen">
       {/* Top bar - Warp style minimal */}
@@ -97,32 +105,43 @@ export default function Home() {
         </span>
       </header>
 
-      {/* Scrollable blocks */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4"
-      >
-        {blocks.length === 0 && (
-          <div className="text-warp-muted text-sm py-8">
-            <p>Ask a question. Answers are based on your knowledge base.</p>
-            <p className="mt-2 text-warp-accent">
-              Type below and press Enter to query.
-            </p>
+      {/* 75% content | 25% images */}
+      <div className="flex-1 flex min-h-0">
+        {/* Left 75%: scrollable chat */}
+        <div
+          ref={scrollRef}
+          className="w-[75%] min-w-0 flex flex-col overflow-y-auto overflow-x-hidden px-4 py-4 border-r border-warp-border"
+        >
+          {blocks.length === 0 && (
+            <div className="text-warp-muted text-sm py-8">
+              <p>Ask a question. Answers are based on your knowledge base.</p>
+              <p className="mt-2 text-warp-accent">
+                Type below and press Enter to query.
+              </p>
+            </div>
+          )}
+          {blocks.map((block) => (
+            <TerminalBlock
+              key={block.id}
+              prompt={block.prompt}
+              response={block.response}
+              isStreaming={block.isStreaming}
+            />
+          ))}
+          {error && (
+            <div className="text-warp-red text-sm py-2" role="alert">
+              {error}
+            </div>
+          )}
+        </div>
+
+        {/* Right 25%: vertical scroll of images */}
+        <aside className="w-[25%] min-w-0 flex flex-col bg-warp-surface/50">
+          <div className="shrink-0 px-2 py-2 border-b border-warp-border text-warp-muted text-xs font-medium">
+            Images
           </div>
-        )}
-        {blocks.map((block) => (
-          <TerminalBlock
-            key={block.id}
-            prompt={block.prompt}
-            response={block.response}
-            isStreaming={block.isStreaming}
-          />
-        ))}
-        {error && (
-          <div className="text-warp-red text-sm py-2" role="alert">
-            {error}
-          </div>
-        )}
+          <ImagesPanel images={sidebarImages} />
+        </aside>
       </div>
 
       {/* Fixed input at bottom */}

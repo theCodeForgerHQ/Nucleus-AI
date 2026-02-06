@@ -60,30 +60,6 @@ export function TerminalBlock({
               </ul>
             </details>
           )}
-          {response.images.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {response.images.map((img, i) => (
-                <a
-                  key={i}
-                  href={img.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block rounded border border-warp-border overflow-hidden hover:border-warp-accent max-w-[200px]"
-                >
-                  <img
-                    src={img.url}
-                    alt={img.caption || "Source"}
-                    className="w-full h-auto object-cover"
-                  />
-                  {img.caption && (
-                    <div className="px-2 py-1 text-xs text-warp-muted truncate">
-                      {img.caption}
-                    </div>
-                  )}
-                </a>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
