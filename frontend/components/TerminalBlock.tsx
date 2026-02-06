@@ -1,8 +1,17 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import type { QueryResponse } from "@/lib/api";
 
 const PROMPT_PREFIX = "you@nucleus ~ % ";
+
+const PROGRESS_STEPS = [
+  "Searching knowledge base…",
+  "Fetching context…",
+  "Reranking results…",
+  "Generating answer…",
+  "Almost there…",
+];
 
 type TerminalBlockProps = {
   prompt: string;
@@ -15,6 +24,16 @@ export function TerminalBlock({
   response,
   isStreaming = false,
 }: TerminalBlockProps) {
+  const [stepIndex, setStepIndex] = useState(0);
+
+  useEffect(() => {
+    if (!isStreaming || response !== null) return;
+    const id = setInterval(() => {
+      setStepIndex((i) => (i + 1) % PROGRESS_STEPS.length);
+    }, 1600);
+    return () => clearInterval(id);
+  }, [isStreaming, response]);
+
   return (
     <div className="terminal-block rounded-r pl-4 pr-4 py-3 my-1">
       {/* Command line */}
@@ -27,7 +46,7 @@ export function TerminalBlock({
       {response === null && isStreaming && (
         <div className="mt-2 text-warp-muted flex items-center gap-2">
           <span className="cursor-blink">▌</span>
-          <span>Thinking...</span>
+          <span>{PROGRESS_STEPS[stepIndex]}</span>
         </div>
       )}
 
