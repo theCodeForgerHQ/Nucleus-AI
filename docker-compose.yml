@@ -122,6 +122,19 @@ services:
     ports:
       - "8090:8000"
 
+  frontend:
+    <<: *public_dns
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_LLM_ENGINE_URL: http://llm-engine:8000
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    depends_on:
+      - llm-engine
+
 secrets:
   guardrails_token:
     file: .secrets/guardrails_token
