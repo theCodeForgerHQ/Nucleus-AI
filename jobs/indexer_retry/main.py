@@ -61,7 +61,7 @@ def set_all_fatal(page_id, err):
                 """,
                 (err, page_id),
             )
-        return True
+        return None
     except Exception:
         return None
 
@@ -82,40 +82,39 @@ def call_indexer(path, payload):
         return None
 
 def main():
-    try:
-        rows = fetch_failed_pages()
-        if rows is None:
-            return
-        for row in rows:
-            if not row:
-                continue
-            page_id, confluence_status, neon_status, pinecone_status = row
-            data = call_indexer("/retry/confluence", {"page_id": page_id})
-            if not data:
-                set_all_fatal(page_id, "confluence retry failed")
-                continue
-            title = data.get("title")
-            created_at = data.get("created_at")
-            if neon_status != "success":
-                call_indexer(
-                    "/retry/neon",
-                    {
-                        "page_id": page_id,
-                        "title": title,
-                        "created_at": created_at,
-                    },
-                )
-            if pinecone_status != "success":
-                call_indexer(
-                    "/retry/pinecone",
-                    {
-                        "page_id": page_id,
-                        "title": title,
-                    },
-                )
-        return
-    except Exception:
-        return
+    rows = fetch_failed_pages()
+    if not rows:
+        return None
+
+    for row in rows:
+        if not row:
+            continue
+        page_id, confluence_status, neon_status, pinecone_status = row
+        data = call_indexer("/retry/confluence", {"page_id": page_id})
+        if not data:
+            set_all_fatal(page_id, "confluence retry failed")
+            continue
+        title = data.get("title")
+        created_at = data.get("created_at")
+        if neon_status != "success":
+            call_indexer(
+                "/retry/neon",
+                {
+                    "page_id": page_id,
+                    "title": title,
+                    "created_at": created_at,
+                },
+            )
+        if pinecone_status != "success":
+            call_indexer(
+                "/retry/pinecone",
+                {
+                    "page_id": page_id,
+                    "title": title,
+                },
+            )
+    return None
+
 
 if __name__ == "__main__":
     main()

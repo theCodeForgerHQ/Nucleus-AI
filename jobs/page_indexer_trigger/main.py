@@ -3,44 +3,59 @@ import time
 import requests
 from jobs.common.confluence_pages import fetch_page_ids
 
-PAGE_INDEXER_URL = os.environ["PAGE_INDEXER_URL"]
-RETRIES = 3
-RETRY_SLEEP = 1.0
 
-def call_page_indexer(page_id):
-    last_err = None
+def get_env(key):
+    try:
+        return os.environ.get(key)
+    except Exception:
+        return None
 
-    for _ in range(RETRIES):
-        try:
-            r = requests.post(
-                PAGE_INDEXER_URL,
-                json={"page_id": page_id},
-                timeout=10,
-            )
 
-            if r.status_code != 200:
-                raise RuntimeError(f"status_{r.status_code}")
+def call_page_indexer_once(page_indexer_url, page_id):
+    try:
+        r = requests.post(
+            page_indexer_url,
+            json={"page_id": page_id},
+            timeout=10,
+        )
 
-            return
+        if r.status_code != 200:
+            return False
 
-        except Exception as e:
-            last_err = str(e)
-            time.sleep(RETRY_SLEEP)
+        return True
+    except Exception:
+        return False
 
-    raise RuntimeError(last_err)
 
 def main():
-    page_ids = fetch_page_ids()
+    page_indexer_url = get_env("PAGE_INDEXER_URL")
+    if not page_indexer_url:
+        return False
+
+    try:
+        page_ids = fetch_page_ids()
+    except Exception:
+        return False
+
     failures = 0
 
     for page_id in page_ids:
-        try:
-            call_page_indexer(page_id)
-        except Exception:
+        ok = False
+
+        for _ in range(3):
+            if call_page_indexer_once(page_indexer_url, page_id):
+                ok = True
+                break
+            time.sleep(1.0)
+
+        if not ok:
             failures += 1
 
     if failures:
-        raise SystemExit(1)
+        return False
+
+    return True
+
 
 if __name__ == "__main__":
     main()
