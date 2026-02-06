@@ -17,3 +17,8 @@ venv/
 # IDE
 .vscode/
 .idea/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local

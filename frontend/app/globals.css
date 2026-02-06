@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --warp-bg: #181818;
+  --warp-surface: #1e1e1e;
+  --warp-border: #2d2d2d;
+  --warp-fg: #d8d8d8;
+  --warp-muted: #858585;
+  --warp-accent: #7cafc2;
+  --warp-green: #a1b56c;
+  --warp-red: #ab4642;
+  --warp-yellow: #f7ca88;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--warp-bg);
+  color: var(--warp-fg);
+}
+
+/* Warp-style block border */
+.terminal-block {
+  border-left: 2px solid var(--warp-border);
+  background: rgba(30, 30, 30, 0.4);
+}
+
+.terminal-block:hover {
+  border-left-color: var(--warp-accent);
+}
+
+/* Cursor blink */
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* Scrollbar - minimal Warp style */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--warp-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--warp-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--warp-muted);
+}
