@@ -80,14 +80,6 @@ def fetch_confluence_page(page_id, trace_id):
         safe_record_stage(trace_id, "confluence", "failed", start)
         return None
 
-def flatten_tables(tables):
-    out = []
-    for table in tables:
-        for fact in table:
-            if fact and fact.strip():
-                out.append(fact.strip())
-    return out
-
 def upsert_neon_images(page_id, images, trace_id):
     start = time.time()
     conn = get_db_conn()
