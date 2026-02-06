@@ -17,12 +17,15 @@ type TerminalBlockProps = {
   prompt: string;
   response: QueryResponse | null;
   isStreaming?: boolean;
+  /** Accumulated answer while streaming (tokens in real time) */
+  streamingAnswer?: string;
 };
 
 export function TerminalBlock({
   prompt,
   response,
   isStreaming = false,
+  streamingAnswer = "",
 }: TerminalBlockProps) {
   const [stepIndex, setStepIndex] = useState(0);
 
@@ -42,11 +45,20 @@ export function TerminalBlock({
         <span className="text-warp-fg break-words">{prompt}</span>
       </div>
 
-      {/* Output */}
+      {/* Output: streaming tokens (live) or progress steps (before first token) */}
       {response === null && isStreaming && (
-        <div className="mt-2 text-warp-muted flex items-center gap-2">
-          <span className="cursor-blink">▌</span>
-          <span>{PROGRESS_STEPS[stepIndex]}</span>
+        <div className="mt-2 text-sm">
+          {streamingAnswer ? (
+            <div className="text-warp-fg whitespace-pre-wrap break-words leading-relaxed">
+              {streamingAnswer}
+              <span className="cursor-blink">▌</span>
+            </div>
+          ) : (
+            <div className="text-warp-muted flex items-center gap-2">
+              <span className="cursor-blink">▌</span>
+              <span>{PROGRESS_STEPS[stepIndex]}</span>
+            </div>
+          )}
         </div>
       )}
 

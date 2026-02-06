@@ -1,7 +1,8 @@
 import os
 import time
 import uuid
-from typing import List, Dict
+import json
+from typing import List, Dict, Generator
 import logging
 
 import psycopg2
@@ -12,6 +13,7 @@ from pinecone import Pinecone
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from guardrails import Guard
@@ -287,6 +289,67 @@ def call_groq_llm(trace_id, query: str, context: str, history: List[Dict[str, st
         )
         raise
 
+
+def call_groq_llm_stream(
+    trace_id: str,
+    query: str,
+    context: str,
+    history: List[Dict[str, str]] = None,
+) -> Generator[str, None, None]:
+    """Stream LLM tokens from Groq. Yields content deltas."""
+    if history is None:
+        history = []
+    start = time.time()
+    try:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an internal company knowledge assistant. "
+                    "Answer only using the provided context. "
+                    "If the answer is not explicitly in the context, reply: "
+                    "'Not found in knowledge base.'"
+                ),
+            }
+        ]
+        if history:
+            messages.extend(history)
+        messages.append({
+            "role": "user",
+            "content": f"Context:\n{context}\n\nQuestion: {query}",
+        })
+
+        stream = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=messages,
+            temperature=0.2,
+            max_tokens=800,
+            stream=True,
+        )
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="query",
+            stage_name="llm_generate",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+    except Exception:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="query",
+            stage_name="llm_generate",
+            status="failure",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        raise
+
+
 @traceable
 def validate_answer_length(trace_id, answer: str) -> bool:
     start = time.time()
@@ -489,3 +552,178 @@ def run_query(req: QueryRequest):
             int((time.time() - start_total) * 1000),
         )
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _sse_line(obj: dict) -> str:
+    return f"data: {json.dumps(obj)}\n\n"
+
+
+@app.post("/query/stream")
+@traceable(run_type="chain", name="RAG Query Stream")
+def run_query_stream(req: QueryRequest):
+    """Stream LLM tokens via Server-Sent Events. Same RAG pipeline, streaming answer."""
+    trace_id = str(uuid.uuid4())
+    start_total = time.time()
+
+    def generate():
+        try:
+            query = req.query
+            history = req.history or []
+
+            chunk_scores = search_with_text(
+                trace_id, chunks_index, query, TOP_K_CHUNKS
+            )
+            page_scores = search_with_text(
+                trace_id, pages_index, query, TOP_K_PAGES
+            )
+            chunk_metadata = fetch_chunks_from_neon(
+                trace_id, list(chunk_scores.keys())
+            )
+
+            fused = []
+            for chunk_id, chunk_score in chunk_scores.items():
+                if chunk_id not in chunk_metadata:
+                    continue
+                meta = chunk_metadata[chunk_id]
+                page_score = page_scores.get(str(meta["page_id"]), 0.0)
+                fused.append({
+                    "chunk_id": chunk_id,
+                    "page_id": meta["page_id"],
+                    "section": meta["section"],
+                    "text": meta["text"],
+                    "fused_score": (W_CHUNK * chunk_score) + (W_PAGE * page_score),
+                })
+
+            if not fused:
+                record_query_result(
+                    trace_id, query, "no_context", 0, 0, 0, 0.0,
+                    int((time.time() - start_total) * 1000),
+                )
+                yield _sse_line({
+                    "type": "done",
+                    "answer": "Not found in knowledge base.",
+                    "sources": [],
+                    "images": [],
+                    "replaceAnswer": None,
+                })
+                return
+
+            rerank_scores = call_reranker(
+                trace_id, query, [f["text"] for f in fused]
+            )
+            for item, score in zip(fused, rerank_scores):
+                item["rerank_score"] = score
+            fused.sort(key=lambda x: x["rerank_score"], reverse=True)
+            top_chunks = fused[:FINAL_TOP_K]
+
+            final_images = []
+            if top_chunks:
+                top_chunk_page_ids = {c["page_id"] for c in top_chunks}
+                image_scores = search_with_text(
+                    trace_id, images_index, query, 20
+                )
+                if image_scores:
+                    fetched_images = fetch_images_from_neon(
+                        trace_id, list(image_scores.keys())
+                    )
+                    ordered_images = sorted(
+                        fetched_images,
+                        key=lambda img: image_scores.get(img.get("image_hash"), 0),
+                        reverse=True,
+                    )
+                    for img in ordered_images:
+                        if img.get("page_id") in top_chunk_page_ids:
+                            final_images.append({
+                                "url": img.get("url"),
+                                "page_id": img.get("page_id"),
+                                "caption": img.get("caption"),
+                            })
+                    final_images = final_images[:TOP_K_IMAGES]
+
+            context = build_context(top_chunks)
+            sources = [
+                {"page_id": c["page_id"], "section": c["section"], "text": c["text"]}
+                for c in top_chunks
+            ]
+
+            full_answer = ""
+            for delta in call_groq_llm_stream(
+                trace_id, query, context, history
+            ):
+                full_answer += delta
+                yield _sse_line({"type": "token", "delta": delta})
+
+            nli = call_nli(trace_id, context, full_answer)
+            contradiction_score = nli.get("contradiction", 0.0)
+            replace_answer = None
+
+            if contradiction_score >= NLI_CONTRADICTION_THRESHOLD:
+                record_query_result(
+                    trace_id, query, "contradicted",
+                    len(top_chunks), len(context), len(full_answer),
+                    contradiction_score,
+                    int((time.time() - start_total) * 1000),
+                )
+                replace_answer = "LLM response contradicted the knowledge base."
+                yield _sse_line({
+                    "type": "done",
+                    "answer": full_answer,
+                    "sources": [],
+                    "images": [],
+                    "replaceAnswer": replace_answer,
+                })
+                return
+
+            if not validate_answer_length(trace_id, full_answer):
+                record_query_result(
+                    trace_id, query, "invalid_output",
+                    len(top_chunks), len(context), len(full_answer),
+                    contradiction_score,
+                    int((time.time() - start_total) * 1000),
+                )
+                replace_answer = "Invalid LLM output."
+                yield _sse_line({
+                    "type": "done",
+                    "answer": full_answer,
+                    "sources": [],
+                    "images": [],
+                    "replaceAnswer": replace_answer,
+                })
+                return
+
+            total_latency_ms = int((time.time() - start_total) * 1000)
+            record_query_result(
+                trace_id, query, "success",
+                len(top_chunks), len(context), len(full_answer),
+                contradiction_score, total_latency_ms,
+            )
+            yield _sse_line({
+                "type": "done",
+                "answer": full_answer,
+                "sources": sources,
+                "images": final_images,
+                "replaceAnswer": None,
+            })
+
+        except Exception as e:
+            record_query_result(
+                trace_id,
+                getattr(req, "query", ""),
+                "failure",
+                0, 0, 0, 0.0,
+                int((time.time() - start_total) * 1000),
+            )
+            yield _sse_line({
+                "type": "error",
+                "error": str(e),
+            })
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

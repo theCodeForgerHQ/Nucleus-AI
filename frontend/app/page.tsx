@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { postQuery, type QueryResponse, type HistoryMessage } from "@/lib/api";
+import {
+  postQueryStream,
+  type QueryResponse,
+  type HistoryMessage,
+} from "@/lib/api";
 import { TerminalBlock } from "@/components/TerminalBlock";
 import { TerminalInput } from "@/components/TerminalInput";
 import { ImagesPanel } from "@/components/ImagesPanel";
@@ -11,6 +15,8 @@ type Block = {
   prompt: string;
   response: QueryResponse | null;
   isStreaming: boolean;
+  /** Accumulated answer text while streaming (tokens in real time) */
+  streamingAnswer: string;
 };
 
 function nextId() {
@@ -44,42 +50,70 @@ export default function Home() {
     const id = nextId();
     setBlocks((prev) => [
       ...prev,
-      { id, prompt: q, response: null, isStreaming: true },
+      {
+        id,
+        prompt: q,
+        response: null,
+        isStreaming: true,
+        streamingAnswer: "",
+      },
     ]);
     setLoading(true);
 
-    try {
-      const history = buildHistory();
-      const response = await postQuery(q, history);
-      setBlocks((prev) =>
-        prev.map((b) =>
-          b.id === id
-            ? { ...b, response, isStreaming: false }
-            : b
-        )
-      );
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Request failed";
-      setError(message);
-      setBlocks((prev) =>
-        prev.map((b) =>
-          b.id === id
-            ? {
-                ...b,
-                response: {
-                  query: q,
-                  answer: `Error: ${message}`,
-                  sources: [],
-                  images: [],
-                },
-                isStreaming: false,
-              }
-            : b
-        )
-      );
-    } finally {
-      setLoading(false);
-    }
+    const history = buildHistory();
+    postQueryStream(q, history, {
+      onToken: (delta) => {
+        setBlocks((prev) =>
+          prev.map((b) =>
+            b.id === id
+              ? { ...b, streamingAnswer: b.streamingAnswer + delta }
+              : b
+          )
+        );
+      },
+      onDone: (payload) => {
+        const answer = payload.replaceAnswer ?? payload.answer;
+        setBlocks((prev) =>
+          prev.map((b) =>
+            b.id === id
+              ? {
+                  ...b,
+                  response: {
+                    query: q,
+                    answer,
+                    sources: payload.sources,
+                    images: payload.images,
+                  },
+                  isStreaming: false,
+                  streamingAnswer: "",
+                }
+              : b
+          )
+        );
+        setLoading(false);
+      },
+      onError: (message) => {
+        setError(message);
+        setBlocks((prev) =>
+          prev.map((b) =>
+            b.id === id
+              ? {
+                  ...b,
+                  response: {
+                    query: q,
+                    answer: `Error: ${message}`,
+                    sources: [],
+                    images: [],
+                  },
+                  isStreaming: false,
+                  streamingAnswer: "",
+                }
+              : b
+          )
+        );
+        setLoading(false);
+      },
+    });
   }, [input, loading, buildHistory]);
 
   useEffect(() => {
@@ -126,6 +160,7 @@ export default function Home() {
               prompt={block.prompt}
               response={block.response}
               isStreaming={block.isStreaming}
+              streamingAnswer={block.streamingAnswer}
             />
           ))}
           {error && (
