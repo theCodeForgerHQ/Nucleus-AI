@@ -79,27 +79,36 @@ export function TerminalBlock({
                 Sources ({response.sources.length})
               </div>
               <ul className="space-y-1.5">
-                {response.sources.map((s, i) => (
-                  <li key={i} className="group relative">
-                    {/* One line per source: transparent/glass bg */}
-                    <div className="text-xs px-2.5 py-1.5 rounded border border-warp-border/60 bg-warp-surface/40 backdrop-blur-sm cursor-default truncate">
-                      <span className="text-warp-accent">[{s.page_id}]</span>{" "}
-                      <span className="text-warp-fg">{s.section}</span>
-                    </div>
-                    {/* Hover popover above: full content, glass bg */}
-                    <div className="absolute bottom-full left-0 mb-1.5 w-full min-w-[280px] max-w-md max-h-56 overflow-y-auto rounded border border-warp-border bg-warp-surface/90 backdrop-blur-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 pointer-events-none group-hover:pointer-events-auto">
-                      <div className="p-3 text-xs sticky top-0 border-b border-warp-border/60 bg-warp-surface/80 backdrop-blur-sm">
-                        <span className="text-warp-accent">[{s.page_id}]</span>{" "}
-                        <span className="text-warp-fg font-medium">
-                          {s.section}
+                {response.sources.map((s, i) => {
+                  const firstLine =
+                    s.text.split(/\r?\n/)[0]?.trim().replace(/\s+/g, " ") ||
+                    s.section;
+                  return (
+                    <li key={i} className="group relative">
+                      {/* One line per source: first line of content, truncated to fit */}
+                      <div className="text-xs px-2.5 py-1.5 rounded border border-warp-border/60 bg-warp-surface/40 backdrop-blur-sm cursor-default flex items-center gap-1 min-w-0">
+                        <span className="text-warp-accent shrink-0">
+                          [{s.page_id}]
+                        </span>
+                        <span className="text-warp-fg truncate min-w-0">
+                          {firstLine}
                         </span>
                       </div>
-                      <div className="p-3 text-warp-muted text-xs leading-relaxed whitespace-pre-wrap">
-                        {s.text}
+                      {/* Hover popover above: full content, glass bg */}
+                      <div className="absolute bottom-full left-0 mb-1.5 w-full min-w-[280px] max-w-md max-h-56 overflow-y-auto rounded border border-warp-border bg-warp-surface/90 backdrop-blur-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 pointer-events-none group-hover:pointer-events-auto">
+                        <div className="p-3 text-xs sticky top-0 border-b border-warp-border/60 bg-warp-surface/80 backdrop-blur-sm">
+                          <span className="text-warp-accent">[{s.page_id}]</span>{" "}
+                          <span className="text-warp-fg font-medium">
+                            {s.section}
+                          </span>
+                        </div>
+                        <div className="p-3 text-warp-muted text-xs leading-relaxed whitespace-pre-wrap">
+                          {s.text}
+                        </div>
                       </div>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
