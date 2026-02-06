@@ -74,22 +74,34 @@ export function TerminalBlock({
             {response.answer}
           </div>
           {response.sources.length > 0 && (
-            <details className="text-warp-muted">
-              <summary className="cursor-pointer hover:text-warp-accent">
+            <div className="mt-2">
+              <div className="text-warp-muted text-xs font-medium mb-1.5">
                 Sources ({response.sources.length})
-              </summary>
-              <ul className="mt-2 space-y-2 pl-4 border-l border-warp-border">
+              </div>
+              <ul className="space-y-1.5">
                 {response.sources.map((s, i) => (
-                  <li key={i} className="text-xs">
-                    <span className="text-warp-accent">[{s.page_id}]</span>{" "}
-                    {s.section}
-                    <div className="text-warp-muted mt-0.5 line-clamp-2">
-                      {s.text}
+                  <li key={i} className="group relative">
+                    {/* One line per source: transparent/glass bg */}
+                    <div className="text-xs px-2.5 py-1.5 rounded border border-warp-border/60 bg-warp-surface/40 backdrop-blur-sm cursor-default truncate">
+                      <span className="text-warp-accent">[{s.page_id}]</span>{" "}
+                      <span className="text-warp-fg">{s.section}</span>
+                    </div>
+                    {/* Hover popover above: full content, glass bg */}
+                    <div className="absolute bottom-full left-0 mb-1.5 w-full min-w-[280px] max-w-md max-h-56 overflow-y-auto rounded border border-warp-border bg-warp-surface/90 backdrop-blur-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 pointer-events-none group-hover:pointer-events-auto">
+                      <div className="p-3 text-xs sticky top-0 border-b border-warp-border/60 bg-warp-surface/80 backdrop-blur-sm">
+                        <span className="text-warp-accent">[{s.page_id}]</span>{" "}
+                        <span className="text-warp-fg font-medium">
+                          {s.section}
+                        </span>
+                      </div>
+                      <div className="p-3 text-warp-muted text-xs leading-relaxed whitespace-pre-wrap">
+                        {s.text}
+                      </div>
                     </div>
                   </li>
                 ))}
               </ul>
-            </details>
+            </div>
           )}
         </div>
       )}
