@@ -326,11 +326,15 @@ def call_groq_llm_stream(
             max_tokens=800,
             stream=True,
         )
+        # Throttle stream for human-readable display (default ~30 tokens/sec)
+        stream_delay = float(os.environ.get("STREAM_DELAY_SEC", "0.035"))
         for chunk in stream:
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta.content
             if delta:
+                if stream_delay > 0:
+                    time.sleep(stream_delay)
                 yield delta
         record_stage_execution(
             trace_id=trace_id,
