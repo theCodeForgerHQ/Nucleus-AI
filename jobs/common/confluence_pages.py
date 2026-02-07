@@ -1,12 +1,6 @@
-import os
+from common.utils import get_env
 import requests
 from requests.auth import HTTPBasicAuth
-
-def get_env(key):
-    try:
-        return os.environ.get(key)
-    except Exception:
-        return None
 
 def fetch_page_ids():
     try:
