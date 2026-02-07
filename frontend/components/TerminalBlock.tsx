@@ -25,6 +25,20 @@ const STAGE_LABELS: Record<StreamStagePayload["stage"], string> = {
 
 const INITIAL_SOURCES_VISIBLE = 4;
 
+/** Renders text with **bold** as actual bold (splits on ** and alternates) */
+function renderWithBold(text: string) {
+  const parts = text.split("**");
+  return parts.map((p, i) =>
+    i % 2 === 1 ? (
+      <strong key={i} className="font-semibold text-warp-fg">
+        {p}
+      </strong>
+    ) : (
+      p
+    )
+  );
+}
+
 type TerminalBlockProps = {
   blockIndex?: number;
   /** When user clicks "View images", scroll the images panel to this block's images */
@@ -76,8 +90,30 @@ export function TerminalBlock({
       ? STAGE_LABELS[pipelineStage]
       : FALLBACK_STEPS[stepIndex];
 
+  const hasImages = response?.images && response.images.length > 0;
+  const isBlockClickable = hasImages && onScrollToImages;
+
   return (
-    <div className="terminal-block rounded-r pl-4 pr-4 py-3 my-1">
+    <div
+      className={`terminal-block rounded-r pl-4 pr-4 py-3 my-1 transition-colors ${
+        isBlockClickable
+          ? "cursor-pointer hover:bg-warp-surface/30"
+          : ""
+      }`}
+      role={isBlockClickable ? "button" : undefined}
+      tabIndex={isBlockClickable ? 0 : undefined}
+      onClick={isBlockClickable ? onScrollToImages : undefined}
+      onKeyDown={
+        isBlockClickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onScrollToImages?.();
+              }
+            }
+          : undefined
+      }
+    >
       {/* Command line */}
       <div className="flex flex-wrap items-baseline gap-1">
         <span className="text-warp-green shrink-0">{PROMPT_PREFIX}</span>
@@ -89,7 +125,7 @@ export function TerminalBlock({
         <div className="mt-2 text-sm">
           {streamingAnswer ? (
             <div className="text-warp-fg whitespace-pre-wrap break-words leading-relaxed">
-              {streamingAnswer}
+              {renderWithBold(streamingAnswer)}
               <span className="cursor-blink">▌</span>
             </div>
           ) : (
@@ -111,17 +147,8 @@ export function TerminalBlock({
                   : "text-warp-fg whitespace-pre-wrap break-words leading-relaxed"
               }`}
             >
-              {response.answer}
+              {renderWithBold(response.answer)}
             </div>
-            {response.images.length > 0 && onScrollToImages && (
-              <button
-                type="button"
-                onClick={onScrollToImages}
-                className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-warp-border/60 bg-warp-surface/60 text-warp-accent hover:bg-warp-surface hover:border-warp-accent transition-colors"
-              >
-                View images
-              </button>
-            )}
           </div>
           {response.sources.length > 0 && (() => {
             const total = response.sources.length;
@@ -150,6 +177,7 @@ export function TerminalBlock({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
+                            e.preventDefault();
                             setOpenSourceIndex((prev) => (prev === i ? null : i));
                           }}
                           className="w-full text-left px-2 py-1 rounded border border-warp-border/60 bg-warp-surface/40 hover:bg-warp-surface/60 hover:border-warp-border cursor-pointer flex items-center gap-1 min-w-0 transition-colors"
@@ -162,14 +190,14 @@ export function TerminalBlock({
                           </span>
                         </button>
                         {isOpen && (
-                          <div className="absolute bottom-full left-0 mb-1.5 w-[min(380px,85vw)] max-h-[45vh] overflow-y-auto overflow-x-hidden rounded border border-warp-border bg-warp-surface/95 backdrop-blur-md shadow-xl z-20 text-[11px]">
-                            <div className="p-3 sticky top-0 border-b border-warp-border/60 bg-warp-surface/95 backdrop-blur-sm z-10">
-                              <span className="text-warp-accent">[{s.page_id}]</span>{" "}
+                          <div className="absolute bottom-full left-0 mb-2 w-[min(560px,92vw)] max-h-[55vh] overflow-y-auto overflow-x-hidden rounded-xl border border-warp-border/50 bg-warp-surface/40 backdrop-blur-xl shadow-2xl z-20 text-[12px] ring-1 ring-white/5">
+                            <div className="sticky top-0 px-5 py-3.5 border-b border-warp-border/40 bg-warp-surface/30 backdrop-blur-md z-10 rounded-t-xl">
+                              <span className="text-warp-accent font-medium">[{s.page_id}]</span>{" "}
                               <span className="text-warp-fg font-medium">
                                 {s.section}
                               </span>
                             </div>
-                            <div className="p-3 text-warp-muted leading-relaxed whitespace-pre-wrap">
+                            <div className="px-5 py-4 text-warp-muted leading-relaxed whitespace-pre-wrap text-[13px]">
                               {s.text}
                             </div>
                           </div>
@@ -181,8 +209,9 @@ export function TerminalBlock({
                 {total > INITIAL_SOURCES_VISIBLE && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setSourcesExpanded((e) => !e);
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSourcesExpanded((prev) => !prev);
                       setOpenSourceIndex(null);
                     }}
                     className="mt-1.5 text-warp-accent hover:underline focus:outline-none"

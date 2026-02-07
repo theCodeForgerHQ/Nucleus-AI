@@ -303,22 +303,26 @@ export default function Home() {
             </div>
           )}
           {blocks.map((block, i) => (
-            <div
-              key={block.id}
-              ref={(el) => {
-                blockRefs.current[i] = el;
-              }}
-              data-block-index={i}
-            >
-              <TerminalBlock
-                blockIndex={i}
-                onScrollToImages={() => setActiveBlockIndex(i)}
-                prompt={block.prompt}
-                response={block.response}
-                isStreaming={block.isStreaming}
-                streamingAnswer={block.streamingAnswer}
-                pipelineStage={block.pipelineStage}
-              />
+            <div key={block.id}>
+              <div
+                ref={(el) => {
+                  blockRefs.current[i] = el;
+                }}
+                data-block-index={i}
+              >
+                <TerminalBlock
+                  blockIndex={i}
+                  onScrollToImages={() => setActiveBlockIndex(i)}
+                  prompt={block.prompt}
+                  response={block.response}
+                  isStreaming={block.isStreaming}
+                  streamingAnswer={block.streamingAnswer}
+                  pipelineStage={block.pipelineStage}
+                />
+              </div>
+              {i < blocks.length - 1 && (
+                <div className="block-separator" aria-hidden />
+              )}
             </div>
           ))}
           {error && (
@@ -353,7 +357,7 @@ export default function Home() {
             value={input}
             onChange={setInput}
             onSubmit={handleSubmit}
-            disabled={loading}
+            disabled={false}
             placeholder="Ask anything..."
             loading={loading}
           />

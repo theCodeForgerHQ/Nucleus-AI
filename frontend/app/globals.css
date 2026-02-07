@@ -33,6 +33,21 @@ body {
   border-left-color: var(--warp-accent);
 }
 
+/* Separator between Q&A blocks (not between query and response) */
+.block-separator {
+  height: 1px;
+  margin: 0.75rem 0 1rem;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--warp-border) 15%,
+    var(--warp-accent) 50%,
+    var(--warp-border) 85%,
+    transparent 100%
+  );
+  opacity: 0.7;
+}
+
 /* Cursor blink */
 @keyframes blink {
   50% {
