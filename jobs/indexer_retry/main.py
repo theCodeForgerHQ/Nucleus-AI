@@ -1,79 +1,92 @@
-import os
-import time
 import requests
-import psycopg2
-from datetime import datetime
+from common.utils import get_db_conn, get_env
 
-DATABASE_URL = os.environ["NEON_DB_URL"]
-PAGE_INDEXER_URL = os.environ["PAGE_INDEXER_URL"]
-
-RETRY_SLEEP = 1.0
-TIMEOUT = 20
-
-def db():
-    return psycopg2.connect(DATABASE_URL)
-
-def fetch_failed_pages():
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT page_id, confluence_status, neon_status, pinecone_status
-            FROM kb_page_ingestion_state
-            WHERE (
-                confluence_status != 'success'
-                OR neon_status != 'success'
-                OR pinecone_status != 'success'
+def fetch_failed_pages(conn):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT page_id, neon_status, pinecone_status
+                FROM kb_page_ingestion_state
+                WHERE (
+                    neon_status != 'success'
+                    OR pinecone_status != 'success'
+                )
+                AND confluence_status != 'fatal'
+                AND neon_status != 'fatal'
+                AND pinecone_status != 'fatal'
+                """
             )
-            AND confluence_status != 'fatal'
-            AND neon_status != 'fatal'
-            AND pinecone_status != 'fatal'
-            """
-        )
-        return cur.fetchall()
+            return cur.fetchall()
+    except Exception:
+        return None
 
-def set_all_fatal(page_id, err):
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE kb_page_ingestion_state
-            SET confluence_status = 'fatal',
-                neon_status = 'fatal',
-                pinecone_status = 'fatal',
-                last_error = %s,
-                updated_at = now()
-            WHERE page_id = %s
-            """,
-            (err, page_id),
+def set_all_fatal(page_id, err, conn):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_page_ingestion_state
+                SET confluence_status = 'fatal',
+                    neon_status = 'fatal',
+                    pinecone_status = 'fatal',
+                    last_error = %s,
+                    updated_at = now()
+                WHERE page_id = %s
+                """,
+                (err, page_id),
+            )
+        return True
+    except Exception:
+        return False
+
+def call_indexer(path, payload):
+    try:
+        base = get_env("PAGE_INDEXER_URL")
+
+        if not base:
+            return None
+
+        r = requests.post(
+            f"{base}{path}",
+            json=payload,
+            timeout=20,
         )
 
-def call_retry(path, payload):
-    r = requests.post(
-        f"{PAGE_INDEXER_URL}{path}",
-        json=payload,
-        timeout=TIMEOUT,
-    )
-    if r.status_code != 200:
-        raise RuntimeError(f"{path}:{r.status_code}")
-    return r.json()
+        if r.status_code != 200:
+            return None
+
+        return r.json()
+    except Exception:
+        return None
 
 def main():
-    rows = fetch_failed_pages()
-    recovered = 0
-    fatal = 0
+    try:
+        conn = get_db_conn()
 
-    for page_id, confluence_status, neon_status, pinecone_status in rows:
-        try:
-            data = call_retry("/retry/confluence", {"page_id": page_id})
-            title = data["title"]
-            created_at = data["created_at"]
-        except Exception as e:
-            set_all_fatal(page_id, str(e))
-            fatal += 1
-            continue
+        if not conn:
+            return False
+    
+        rows = fetch_failed_pages(conn)
+        if not rows:
+            return True
 
-        if neon_status != "success":
-            try:
-                call_retry(
+        for row in rows:
+            if not row:
+                continue
+
+            page_id, neon_status, pinecone_status = row
+            data = call_indexer("/retry/confluence", {"page_id": page_id})
+
+            if not data:
+                set_all_fatal(page_id, "confluence retry failed", conn)
+                continue
+
+            title = data.get("title")
+            created_at = data.get("created_at")
+
+            if neon_status != "success":
+                call_indexer(
                     "/retry/neon",
                     {
                         "page_id": page_id,
@@ -81,26 +94,20 @@ def main():
                         "created_at": created_at,
                     },
                 )
-            except Exception:
-                pass
 
-        if pinecone_status != "success":
-            try:
-                call_retry(
+            if pinecone_status != "success":
+                call_indexer(
                     "/retry/pinecone",
                     {
                         "page_id": page_id,
                         "title": title,
                     },
                 )
-            except Exception:
-                pass
 
-        recovered += 1
-        time.sleep(RETRY_SLEEP)
+        return True
+    except Exception:
+        return False
 
-    if fatal:
-        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()
