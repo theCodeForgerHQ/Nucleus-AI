@@ -11,6 +11,8 @@ import { TerminalBlock } from "@/components/TerminalBlock";
 import { TerminalInput } from "@/components/TerminalInput";
 import { ImagesPanel } from "@/components/ImagesPanel";
 
+const STORAGE_KEY = "nucleus-ai-chat-blocks";
+
 type Block = {
   id: string;
   prompt: string;
@@ -26,12 +28,47 @@ function nextId() {
   return Math.random().toString(36).slice(2, 12);
 }
 
+function loadBlocksFromStorage(): Block[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { id: string; prompt: string; response: QueryResponse }[];
+    return parsed.map((b) => ({
+      id: b.id,
+      prompt: b.prompt,
+      response: b.response,
+      isStreaming: false,
+      streamingAnswer: "",
+      pipelineStage: null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function saveBlocksToStorage(blocks: Block[]) {
+  const toSave = blocks
+    .filter((b) => b.response !== null)
+    .map((b) => ({ id: b.id, prompt: b.prompt, response: b.response! }));
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch {
+    // ignore quota or other storage errors
+  }
+}
+
 export default function Home() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Restore conversation from localStorage after mount (client-only)
+  useEffect(() => {
+    setBlocks(loadBlocksFromStorage());
+  }, []);
 
   const buildHistory = useCallback((): HistoryMessage[] => {
     const out: HistoryMessage[] = [];
@@ -130,6 +167,11 @@ export default function Home() {
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
+  }, [blocks]);
+
+  // Persist completed blocks to localStorage so conversation survives refresh
+  useEffect(() => {
+    saveBlocksToStorage(blocks);
   }, [blocks]);
 
   // Images from the most recent response that has images (for right panel)

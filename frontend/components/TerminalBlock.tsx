@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { QueryResponse } from "@/lib/api";
 import type { StreamStagePayload } from "@/lib/api";
 
@@ -41,6 +41,8 @@ export function TerminalBlock({
   pipelineStage = null,
 }: TerminalBlockProps) {
   const [stepIndex, setStepIndex] = useState(0);
+  const [openSourceIndex, setOpenSourceIndex] = useState<number | null>(null);
+  const openSourceRef = useRef<HTMLLIElement>(null);
 
   useEffect(() => {
     if (!isStreaming || response !== null || pipelineStage != null) return;
@@ -49,6 +51,17 @@ export function TerminalBlock({
     }, 1600);
     return () => clearInterval(id);
   }, [isStreaming, response, pipelineStage]);
+
+  useEffect(() => {
+    if (openSourceIndex === null) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (openSourceRef.current && !openSourceRef.current.contains(e.target as Node)) {
+        setOpenSourceIndex(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [openSourceIndex]);
 
   const statusLabel =
     pipelineStage != null
@@ -92,38 +105,52 @@ export function TerminalBlock({
             {response.answer}
           </div>
           {response.sources.length > 0 && (
-            <div className="mt-2">
-              <div className="text-warp-muted text-xs font-medium mb-1.5">
+            <div className="mt-2 text-[11px]">
+              <div className="text-warp-muted font-medium mb-1.5">
                 Sources ({response.sources.length})
               </div>
-              <ul className="space-y-1.5">
+              <ul className="space-y-1">
                 {response.sources.map((s, i) => {
                   const firstLine =
                     s.text.split(/\r?\n/)[0]?.trim().replace(/\s+/g, " ") ||
                     s.section;
+                  const isOpen = openSourceIndex === i;
                   return (
-                    <li key={i} className="group relative">
-                      {/* One line per source: first line of content, truncated to fit */}
-                      <div className="text-xs px-2.5 py-1.5 rounded border border-warp-border/60 bg-warp-surface/40 backdrop-blur-sm cursor-default flex items-center gap-1 min-w-0">
+                    <li
+                      key={i}
+                      ref={isOpen ? openSourceRef : undefined}
+                      className="relative"
+                    >
+                      {/* Clickable source row: click opens popover */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenSourceIndex((prev) => (prev === i ? null : i));
+                        }}
+                        className="w-full text-left px-2 py-1 rounded border border-warp-border/60 bg-warp-surface/40 hover:bg-warp-surface/60 hover:border-warp-border cursor-pointer flex items-center gap-1 min-w-0 transition-colors"
+                      >
                         <span className="text-warp-accent shrink-0">
                           [{s.page_id}]
                         </span>
                         <span className="text-warp-fg truncate min-w-0">
                           {firstLine}
                         </span>
-                      </div>
-                      {/* Hover popover: wide horizontal panel, single view; scroll only when content overflows */}
-                      <div className="absolute bottom-full left-0 mb-1.5 w-[min(90vw,1100px)] min-w-[280px] max-h-[75vh] overflow-y-auto overflow-x-hidden rounded border border-warp-border bg-warp-surface/95 backdrop-blur-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 pointer-events-none group-hover:pointer-events-auto">
-                        <div className="p-4 text-xs sticky top-0 border-b border-warp-border/60 bg-warp-surface/95 backdrop-blur-sm z-10">
-                          <span className="text-warp-accent">[{s.page_id}]</span>{" "}
-                          <span className="text-warp-fg font-medium">
-                            {s.section}
-                          </span>
+                      </button>
+                      {/* Click-to-open popover: compact so it doesn't block the whole row */}
+                      {isOpen && (
+                        <div className="absolute bottom-full left-0 mb-1.5 w-[min(380px,85vw)] max-h-[45vh] overflow-y-auto overflow-x-hidden rounded border border-warp-border bg-warp-surface/95 backdrop-blur-md shadow-xl z-20 text-[11px]">
+                          <div className="p-3 sticky top-0 border-b border-warp-border/60 bg-warp-surface/95 backdrop-blur-sm z-10">
+                            <span className="text-warp-accent">[{s.page_id}]</span>{" "}
+                            <span className="text-warp-fg font-medium">
+                              {s.section}
+                            </span>
+                          </div>
+                          <div className="p-3 text-warp-muted leading-relaxed whitespace-pre-wrap">
+                            {s.text}
+                          </div>
                         </div>
-                        <div className="p-4 text-warp-muted text-sm leading-relaxed whitespace-pre-wrap">
-                          {s.text}
-                        </div>
-                      </div>
+                      )}
                     </li>
                   );
                 })}

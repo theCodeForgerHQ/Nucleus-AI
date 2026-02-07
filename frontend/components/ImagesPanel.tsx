@@ -58,7 +58,7 @@ function ImageCard({
       rel="noopener noreferrer"
       className="block rounded border border-warp-border overflow-hidden hover:border-warp-accent shrink-0 group"
     >
-      <div className="relative aspect-[4/3] w-full bg-warp-surface min-h-[60px]">
+      <div className="relative w-full bg-warp-surface min-h-[60px] flex items-center justify-center">
         {!loaded && (
           <div
             className="absolute inset-0 image-skeleton rounded-none"
@@ -68,7 +68,7 @@ function ImageCard({
         <img
           src={img.url}
           alt={img.caption || "Source"}
-          className={`w-full h-full object-cover transition-opacity duration-300 ${
+          className={`max-w-full w-auto h-auto object-contain transition-opacity duration-300 ${
             loaded ? "opacity-100" : "opacity-0"
           }`}
           onLoad={() => setLoaded(true)}
