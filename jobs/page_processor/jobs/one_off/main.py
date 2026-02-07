@@ -51,6 +51,9 @@ def process_page(page_id, conn, pc):
     start = time.time()
     try:
         html = fetch_confluence_page(page_id, trace_id)
+        
+        if not html:
+            return False
 
         try:
             images = extract_images(html) or []
@@ -121,19 +124,51 @@ def process_page(page_id, conn, pc):
         except Exception:
             return False
 
-        upsert_neon_images(conn, page_id, images, trace_id)
-        upsert_neon_chunks(conn, page_id, text_chunks, section_paths, trace_id)
-        upsert_neon_chunks(conn, page_id, table_chunks, table_section_paths, trace_id)
-        upsert_pinecone_chunks(pc, text_chunks + table_chunks, trace_id)
-        upsert_pinecone_images(pc, images, trace_id)
-        mark_page_unstashed(conn, page_id)
-
+        step_results = {
+            "neon_chunks": False,
+            "pinecone_chunks": False,
+            "neon_images": False,
+            "pinecone_images": False,
+        }
+        
+        for _ in range(RETRIES):
+            if not step_results["neon_images"]:
+                step_results["neon_images"] = upsert_neon_images(conn, page_id, images, trace_id)
+        
+            if not step_results["neon_chunks"]:
+                step_results["neon_chunks"] = upsert_neon_chunks(
+                    conn, page_id, text_chunks, section_paths, trace_id
+                ) and upsert_neon_chunks(
+                    conn, page_id, table_chunks, table_section_paths, trace_id
+                )
+        
+            if not step_results["pinecone_chunks"]:
+                step_results["pinecone_chunks"] = upsert_pinecone_chunks(
+                    pc, text_chunks + table_chunks, trace_id
+                )
+        
+            if not step_results["pinecone_images"]:
+                step_results["pinecone_images"] = upsert_pinecone_images(
+                    pc, images, trace_id
+                )
+        
+            if step_results["neon_chunks"] and step_results["pinecone_chunks"] and step_results["neon_images"] and step_results["pinecone_images"]:
+                break
+        
+            time.sleep(RETRY_SLEEP)
+        
+        success = step_results["neon_chunks"] and step_results["pinecone_chunks"]
+        
+        if success:
+            mark_page_unstashed(conn, page_id)
+        
         lengths = [len(c) for c in text_chunks]
         avg_len = sum(lengths) // len(lengths) if lengths else 0
+        
         record_processing_result(
             trace_id=trace_id,
             page_id=page_id,
-            final_status="success",
+            final_status="success" if success else "failed",
             text_chunk_count=len(text_chunks),
             table_chunk_count=len(table_chunks),
             image_count=len(images),
@@ -143,7 +178,8 @@ def process_page(page_id, conn, pc):
             total_embeddings=len(text_chunks) + len(table_chunks),
             total_latency_ms=int((time.time() - start) * 1000),
         )
-        return True
+        
+        return success
     except Exception:
         record_processing_result(
             trace_id=trace_id,
@@ -168,14 +204,14 @@ def main():
     except Exception:
         return False
 
+    if not pc or not conn:
+        return False
+
     if not page_ids:
         return True
 
     for page_id in page_ids:
-        for _ in range(RETRIES):
-            if process_page(page_id, conn, pc):
-                break
-            time.sleep(RETRY_SLEEP)
+        process_page(page_id, conn, pc)
 
     return True
 
