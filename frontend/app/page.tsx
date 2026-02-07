@@ -235,7 +235,7 @@ export default function Home() {
       {/* Top bar - Warp style minimal */}
       <header className="shrink-0 h-9 flex items-center px-4 border-b border-warp-border bg-warp-surface">
         <span className="text-warp-muted text-xs font-medium">
-          Nucleus AI — Knowledge Base
+          Google — Knowledge Base
         </span>
       </header>
 

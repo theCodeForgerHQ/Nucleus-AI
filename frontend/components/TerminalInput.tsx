@@ -101,7 +101,7 @@ export function TerminalInput({
         />
         {atStart ? (
           <span
-            className="cursor-blink absolute inline-block w-1 bg-warp-accent"
+            className="cursor-blink absolute inline-block w-1.5 bg-warp-accent"
             style={{
               left: SPACE_AFTER_PREFIX_PX,
               top: "50%",
