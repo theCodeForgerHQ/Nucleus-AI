@@ -157,7 +157,7 @@ def process_page(page_id, conn, pc):
         
             time.sleep(RETRY_SLEEP)
         
-        success = step_results["neon_chunks"] and step_results["pinecone_chunks"]
+        success = step_results["neon_chunks"] and step_results["pinecone_chunks"] and step_results["neon_images"] and step_results["pinecone_images"]
         
         if success:
             mark_page_unstashed(conn, page_id)
