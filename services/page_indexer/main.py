@@ -84,8 +84,12 @@ def fetch_confluence_page(page_id, trace_id):
             return None
     
         safe_record_stage(trace_id, "confluence_page_fetch", "success", start)
-        return r.json().get("body", {}).get("storage", {}).get("value")
-    
+        data = r.json()
+        return (
+            data["title"],
+            datetime.fromisoformat(data["history"]["createdDate"].replace("Z", "+00:00")),
+        )    
+
     except Exception:
         safe_record_stage(trace_id, "confluence_page_fetch", "failed", start)
         return None
@@ -137,13 +141,10 @@ def process_page(page_id):
     init_state(conn, page_id)
 
     try:
-        try:
-            title, created_at = fetch_confluence_page(page_id, trace_id)
-            if not title or not created_at:
-                return False
-        except Exception:
+        title, created_at = fetch_confluence_page(page_id, trace_id)
+        if not title or not created_at:
             return False
-        
+            
         insert_neon(conn, page_id, title, build_source_url(page_id), created_at, trace_id)
         upsert_pinecone(pc, page_id, title, trace_id)
 
@@ -177,15 +178,18 @@ async def page_created(req: Request, bg: BackgroundTasks):
         bg.add_task(process_page, page_id)
         return {"accepted": True, "page_id": page_id}
     except Exception:
-        return None
+        return {"accepted": False}
 
 @app.post("/retry/confluence")
 def retry_confluence(req: dict):
     trace_id = str(uuid.uuid4())
+    conn = None
     try:
-        page_id = req["page_id"]
         conn = get_db_conn()
+        if conn is None:
+            return {"accepted": False, "reason": "db_unavailable"}
 
+        page_id = req["page_id"]
         title, created_at = fetch_confluence_page(page_id, trace_id)
         update_state(conn, page_id, "confluence_status", "success")
         return {
@@ -195,14 +199,19 @@ def retry_confluence(req: dict):
         }
 
     except Exception:
-        update_state(conn, page_id, "confluence_status", "failure")
-        return None
-
+        if conn is not None:
+            update_state(conn, page_id, "confluence_status", "failure")
+        return {"accepted": False}
+        
 @app.post("/retry/neon")
 def retry_neon(req: dict):
     trace_id = str(uuid.uuid4())
+    conn = None
     try:
         conn = get_db_conn()
+        if conn is None:
+            return {"accepted": False, "reason": "db_unavailable"}
+
         page_id = req["page_id"]
         title = req["title"]
         created_at = datetime.fromisoformat(req["created_at"])
@@ -212,15 +221,20 @@ def retry_neon(req: dict):
         return {"page_id": page_id}
 
     except Exception:
-        update_state(conn, page_id, "neon_status", "failed")
-        return None
+        if conn is not None:
+            update_state(conn, page_id, "neon_status", "failed")
+        return {"accepted": False}
 
 @app.post("/retry/pinecone")
 def retry_pinecone(req: dict):
     trace_id = str(uuid.uuid4())
+    conn = None
     try:
-        pc = get_pinecone_client()
         conn = get_db_conn()
+        if conn is None:
+            return {"accepted": False, "reason": "db_unavailable"}
+
+        pc = get_pinecone_client()
         page_id = req["page_id"]
         title = req["title"]
 
@@ -229,9 +243,10 @@ def retry_pinecone(req: dict):
         return {"page_id": page_id}
 
     except Exception:
-        update_state(conn, page_id, "pinecone_status", "failed")
-        return None
-
+        if conn is not None:
+            update_state(conn, page_id, "pinecone_status", "failed")
+        return {"accepted": False}
+    
 @app.post("/webhooks/page-created")
 async def page_created(request: Request, background_tasks: BackgroundTasks):
     try:
@@ -240,7 +255,7 @@ async def page_created(request: Request, background_tasks: BackgroundTasks):
         background_tasks.add_task(process_page, page_id)
         return {"accepted": True, "page_id": page_id}
     except Exception:
-        return None
+        return {"accepted": False}
 
 @app.post("/webhooks/page-updated")
 async def page_updated_webhook(request: Request, background_tasks: BackgroundTasks):
@@ -259,7 +274,7 @@ async def page_updated_webhook(request: Request, background_tasks: BackgroundTas
 
         return {"accepted": True, "page_id": page_id}
     except Exception:
-        return None
+        return {"accepted": False}
 
 @app.post("/webhooks/page-deleted")
 async def page_deleted(request: Request, background_tasks: BackgroundTasks):
@@ -273,7 +288,7 @@ async def page_deleted(request: Request, background_tasks: BackgroundTasks):
 
         return {"accepted": True, "page_id": page_id}
     except Exception:
-        return None
+        return {"accepted": False}
 
 @app.post("/webhooks/page-restored")
 async def page_restored(request: Request, background_tasks: BackgroundTasks):
@@ -286,7 +301,7 @@ async def page_restored(request: Request, background_tasks: BackgroundTasks):
         background_tasks.add_task(page_restored, conn, trace_id, page_id)
         return {"accepted": True, "page_id": page_id}
     except Exception:
-        return None
+        return {"accepted": False}
 
 def page_updated(conn, trace_id, page_id):
     start = time.time()
