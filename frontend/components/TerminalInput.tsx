@@ -22,6 +22,10 @@ export function TerminalInput({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -35,7 +39,7 @@ export function TerminalInput({
   };
 
   return (
-    <div className="flex items-center gap-0 w-full border-t border-warp-border bg-warp-bg py-3 px-4">
+    <div className="flex items-baseline gap-0 w-full border-t border-warp-border bg-warp-bg py-3 px-4">
       <span className="text-warp-green shrink-0 select-none">
         {PROMPT_PREFIX}
         {" "}
@@ -54,7 +58,10 @@ export function TerminalInput({
         spellCheck={false}
         aria-label="Query input"
       />
-      <span className="cursor-blink shrink-0 w-2 h-4 bg-warp-accent ml-0.5" />
+      <span
+        className="cursor-blink shrink-0 inline-block w-3 h-0.5 bg-warp-accent ml-0.5"
+        aria-hidden
+      />
     </div>
   );
 }
