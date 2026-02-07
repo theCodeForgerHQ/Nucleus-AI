@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react";
 import type { QueryResponse } from "@/lib/api";
+import type { StreamStagePayload } from "@/lib/api";
 
 const PROMPT_PREFIX = "you@nucleus ~ % ";
 
-const PROGRESS_STEPS = [
+/** Fallback steps when backend doesn't send stage yet (cycle on timer) */
+const FALLBACK_STEPS = [
   "Searching knowledge base…",
   "Fetching context…",
   "Reranking results…",
@@ -13,12 +15,22 @@ const PROGRESS_STEPS = [
   "Almost there…",
 ];
 
+const STAGE_LABELS: Record<StreamStagePayload["stage"], string> = {
+  searching: "Searching knowledge base…",
+  fetching_context: "Fetching context…",
+  reranking: "Reranking results…",
+  fetching_images: "Fetching images…",
+  generating: "Generating answer…",
+};
+
 type TerminalBlockProps = {
   prompt: string;
   response: QueryResponse | null;
   isStreaming?: boolean;
   /** Accumulated answer while streaming (tokens in real time) */
   streamingAnswer?: string;
+  /** Real pipeline stage from backend; when set, this is shown instead of fallback steps */
+  pipelineStage?: StreamStagePayload["stage"] | null;
 };
 
 export function TerminalBlock({
@@ -26,16 +38,22 @@ export function TerminalBlock({
   response,
   isStreaming = false,
   streamingAnswer = "",
+  pipelineStage = null,
 }: TerminalBlockProps) {
   const [stepIndex, setStepIndex] = useState(0);
 
   useEffect(() => {
-    if (!isStreaming || response !== null) return;
+    if (!isStreaming || response !== null || pipelineStage != null) return;
     const id = setInterval(() => {
-      setStepIndex((i) => (i + 1) % PROGRESS_STEPS.length);
+      setStepIndex((i) => (i + 1) % FALLBACK_STEPS.length);
     }, 1600);
     return () => clearInterval(id);
-  }, [isStreaming, response]);
+  }, [isStreaming, response, pipelineStage]);
+
+  const statusLabel =
+    pipelineStage != null
+      ? STAGE_LABELS[pipelineStage]
+      : FALLBACK_STEPS[stepIndex];
 
   return (
     <div className="terminal-block rounded-r pl-4 pr-4 py-3 my-1">
@@ -56,7 +74,7 @@ export function TerminalBlock({
           ) : (
             <div className="text-warp-muted flex items-center gap-2">
               <span className="cursor-blink">▌</span>
-              <span>{PROGRESS_STEPS[stepIndex]}</span>
+              <span>{statusLabel}</span>
             </div>
           )}
         </div>

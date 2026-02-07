@@ -5,6 +5,7 @@ import {
   postQueryStream,
   type QueryResponse,
   type HistoryMessage,
+  type StreamStagePayload,
 } from "@/lib/api";
 import { TerminalBlock } from "@/components/TerminalBlock";
 import { TerminalInput } from "@/components/TerminalInput";
@@ -17,6 +18,8 @@ type Block = {
   isStreaming: boolean;
   /** Accumulated answer text while streaming (tokens in real time) */
   streamingAnswer: string;
+  /** Current pipeline stage from backend (real status) */
+  pipelineStage: StreamStagePayload["stage"] | null;
 };
 
 function nextId() {
@@ -56,12 +59,18 @@ export default function Home() {
         response: null,
         isStreaming: true,
         streamingAnswer: "",
+        pipelineStage: null,
       },
     ]);
     setLoading(true);
 
     const history = buildHistory();
     postQueryStream(q, history, {
+      onStage: (stage) => {
+        setBlocks((prev) =>
+          prev.map((b) => (b.id === id ? { ...b, pipelineStage: stage } : b))
+        );
+      },
       onToken: (delta) => {
         setBlocks((prev) =>
           prev.map((b) =>
@@ -166,6 +175,7 @@ export default function Home() {
               response={block.response}
               isStreaming={block.isStreaming}
               streamingAnswer={block.streamingAnswer}
+              pipelineStage={block.pipelineStage}
             />
           ))}
           {error && (

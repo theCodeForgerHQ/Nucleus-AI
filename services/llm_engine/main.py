@@ -574,12 +574,14 @@ def run_query_stream(req: QueryRequest):
             query = req.query
             history = req.history or []
 
+            yield _sse_line({"type": "stage", "stage": "searching"})
             chunk_scores = search_with_text(
                 trace_id, chunks_index, query, TOP_K_CHUNKS
             )
             page_scores = search_with_text(
                 trace_id, pages_index, query, TOP_K_PAGES
             )
+            yield _sse_line({"type": "stage", "stage": "fetching_context"})
             chunk_metadata = fetch_chunks_from_neon(
                 trace_id, list(chunk_scores.keys())
             )
@@ -612,6 +614,7 @@ def run_query_stream(req: QueryRequest):
                 })
                 return
 
+            yield _sse_line({"type": "stage", "stage": "reranking"})
             rerank_scores = call_reranker(
                 trace_id, query, [f["text"] for f in fused]
             )
@@ -622,6 +625,7 @@ def run_query_stream(req: QueryRequest):
 
             final_images = []
             if top_chunks:
+                yield _sse_line({"type": "stage", "stage": "fetching_images"})
                 top_chunk_page_ids = {c["page_id"] for c in top_chunks}
                 image_scores = search_with_text(
                     trace_id, images_index, query, 20
@@ -650,6 +654,7 @@ def run_query_stream(req: QueryRequest):
                 for c in top_chunks
             ]
 
+            yield _sse_line({"type": "stage", "stage": "generating"})
             full_answer = ""
             for delta in call_groq_llm_stream(
                 trace_id, query, context, history

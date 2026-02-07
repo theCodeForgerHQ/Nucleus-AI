@@ -33,12 +33,17 @@ export type StreamDonePayload = {
 
 export type StreamTokenPayload = { type: "token"; delta: string };
 export type StreamErrorPayload = { type: "error"; error: string };
+export type StreamStagePayload = {
+  type: "stage";
+  stage: "searching" | "fetching_context" | "reranking" | "fetching_images" | "generating";
+};
 
 export async function postQueryStream(
   query: string,
   history: HistoryMessage[],
   callbacks: {
     onToken: (delta: string) => void;
+    onStage?: (stage: StreamStagePayload["stage"]) => void;
     onDone: (payload: StreamDonePayload) => void;
     onError: (message: string) => void;
   }
@@ -75,9 +80,12 @@ export async function postQueryStream(
             const data = JSON.parse(raw) as
               | StreamTokenPayload
               | StreamDonePayload
-              | StreamErrorPayload;
+              | StreamErrorPayload
+              | StreamStagePayload;
             if (data.type === "token") {
               callbacks.onToken(data.delta);
+            } else if (data.type === "stage") {
+              callbacks.onStage?.(data.stage);
             } else if (data.type === "done") {
               callbacks.onDone(data);
             } else if (data.type === "error") {
