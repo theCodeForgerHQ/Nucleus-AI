@@ -58,6 +58,14 @@ function saveBlocksToStorage(blocks: Block[]) {
   }
 }
 
+function clearStorage() {
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export default function Home() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [input, setInput] = useState("");
@@ -68,10 +76,26 @@ export default function Home() {
   const [activeBlockIndex, setActiveBlockIndex] = useState<number>(0);
   const ratioRef = useRef<number[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+  /** Only allow saving after we've had blocks (from load or user); avoids saving [] on first paint before load runs */
+  const allowSaveRef = useRef(false);
 
   // Restore conversation from localStorage after mount (client-only)
   useEffect(() => {
     setBlocks(loadBlocksFromStorage());
+  }, []);
+
+  // Allow persistence only after blocks have been populated (from load or first message)
+  useEffect(() => {
+    if (blocks.length > 0) allowSaveRef.current = true;
+  }, [blocks]);
+
+  const handleNewChat = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setBlocks([]);
+    setError(null);
+    setLoading(false);
+    clearStorage();
   }, []);
 
   const buildHistory = useCallback((): HistoryMessage[] => {
@@ -220,6 +244,7 @@ export default function Home() {
 
   // Persist completed blocks to localStorage so conversation survives refresh
   useEffect(() => {
+    if (!allowSaveRef.current) return;
     saveBlocksToStorage(blocks);
   }, [blocks]);
 
@@ -279,10 +304,19 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen">
       {/* Top bar - Warp style minimal */}
-      <header className="shrink-0 h-9 flex items-center px-4 border-b border-warp-border bg-warp-surface">
+      <header className="shrink-0 h-9 flex items-center justify-between px-4 border-b border-warp-border bg-warp-surface">
         <span className="text-warp-muted text-xs font-medium">
           Nucleus AI — Google Knowledge Base
         </span>
+        <button
+          type="button"
+          onClick={handleNewChat}
+          disabled={loading}
+          className="text-warp-muted hover:text-warp-fg text-xs font-medium px-2 py-1 rounded border border-warp-border/60 hover:border-warp-border bg-transparent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Start a new chat (clears current conversation)"
+        >
+          New chat
+        </button>
       </header>
 
       {/* Full width initially; smooth transition to 75% chat | 25% images after first query */}
@@ -366,12 +400,11 @@ export default function Home() {
           <button
             type="button"
             onClick={handleStopGenerating}
-            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full mr-3 font-mono text-sm hover:opacity-90 transition-opacity"
-            style={{ backgroundColor: "#b07d7d", color: "#1a1a1a" }}
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded border border-warp-border bg-warp-surface font-mono text-sm text-warp-red hover:bg-warp-surface/80 hover:border-warp-red/50 transition-colors mr-3"
             title="Stop generating"
             aria-label="Stop generating"
           >
-            <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: "#1a1a1a" }} />
+            <span className="w-2 h-2 rounded-sm shrink-0 bg-warp-red" />
             <span>^C</span>
           </button>
         )}
