@@ -23,6 +23,8 @@ const STAGE_LABELS: Record<StreamStagePayload["stage"], string> = {
   generating: "Generating answer…",
 };
 
+const INITIAL_SOURCES_VISIBLE = 4;
+
 type TerminalBlockProps = {
   prompt: string;
   response: QueryResponse | null;
@@ -42,6 +44,7 @@ export function TerminalBlock({
 }: TerminalBlockProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const [openSourceIndex, setOpenSourceIndex] = useState<number | null>(null);
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const openSourceRef = useRef<HTMLLIElement>(null);
 
   useEffect(() => {
@@ -104,59 +107,78 @@ export function TerminalBlock({
           >
             {response.answer}
           </div>
-          {response.sources.length > 0 && (
-            <div className="mt-2 text-[11px]">
-              <div className="text-warp-muted font-medium mb-1.5">
-                Sources ({response.sources.length})
-              </div>
-              <ul className="space-y-1">
-                {response.sources.map((s, i) => {
-                  const firstLine =
-                    s.text.split(/\r?\n/)[0]?.trim().replace(/\s+/g, " ") ||
-                    s.section;
-                  const isOpen = openSourceIndex === i;
-                  return (
-                    <li
-                      key={i}
-                      ref={isOpen ? openSourceRef : undefined}
-                      className="relative"
-                    >
-                      {/* Clickable source row: click opens popover */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenSourceIndex((prev) => (prev === i ? null : i));
-                        }}
-                        className="w-full text-left px-2 py-1 rounded border border-warp-border/60 bg-warp-surface/40 hover:bg-warp-surface/60 hover:border-warp-border cursor-pointer flex items-center gap-1 min-w-0 transition-colors"
+          {response.sources.length > 0 && (() => {
+            const total = response.sources.length;
+            const showExpand = total > INITIAL_SOURCES_VISIBLE && !sourcesExpanded;
+            const visibleSources = showExpand
+              ? response.sources.slice(0, INITIAL_SOURCES_VISIBLE)
+              : response.sources;
+            return (
+              <div className="mt-2 text-[11px]">
+                <div className="text-warp-muted font-medium mb-1.5">
+                  Sources ({total})
+                </div>
+                <ul className="space-y-1">
+                  {visibleSources.map((s, i) => {
+                    const firstLine =
+                      s.text.split(/\r?\n/)[0]?.trim().replace(/\s+/g, " ") ||
+                      s.section;
+                    const isOpen = openSourceIndex === i;
+                    return (
+                      <li
+                        key={i}
+                        ref={isOpen ? openSourceRef : undefined}
+                        className="relative"
                       >
-                        <span className="text-warp-accent shrink-0">
-                          [{s.page_id}]
-                        </span>
-                        <span className="text-warp-fg truncate min-w-0">
-                          {firstLine}
-                        </span>
-                      </button>
-                      {/* Click-to-open popover: compact so it doesn't block the whole row */}
-                      {isOpen && (
-                        <div className="absolute bottom-full left-0 mb-1.5 w-[min(380px,85vw)] max-h-[45vh] overflow-y-auto overflow-x-hidden rounded border border-warp-border bg-warp-surface/95 backdrop-blur-md shadow-xl z-20 text-[11px]">
-                          <div className="p-3 sticky top-0 border-b border-warp-border/60 bg-warp-surface/95 backdrop-blur-sm z-10">
-                            <span className="text-warp-accent">[{s.page_id}]</span>{" "}
-                            <span className="text-warp-fg font-medium">
-                              {s.section}
-                            </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenSourceIndex((prev) => (prev === i ? null : i));
+                          }}
+                          className="w-full text-left px-2 py-1 rounded border border-warp-border/60 bg-warp-surface/40 hover:bg-warp-surface/60 hover:border-warp-border cursor-pointer flex items-center gap-1 min-w-0 transition-colors"
+                        >
+                          <span className="text-warp-accent shrink-0">
+                            [{s.page_id}]
+                          </span>
+                          <span className="text-warp-fg truncate min-w-0">
+                            {firstLine}
+                          </span>
+                        </button>
+                        {isOpen && (
+                          <div className="absolute bottom-full left-0 mb-1.5 w-[min(380px,85vw)] max-h-[45vh] overflow-y-auto overflow-x-hidden rounded border border-warp-border bg-warp-surface/95 backdrop-blur-md shadow-xl z-20 text-[11px]">
+                            <div className="p-3 sticky top-0 border-b border-warp-border/60 bg-warp-surface/95 backdrop-blur-sm z-10">
+                              <span className="text-warp-accent">[{s.page_id}]</span>{" "}
+                              <span className="text-warp-fg font-medium">
+                                {s.section}
+                              </span>
+                            </div>
+                            <div className="p-3 text-warp-muted leading-relaxed whitespace-pre-wrap">
+                              {s.text}
+                            </div>
                           </div>
-                          <div className="p-3 text-warp-muted leading-relaxed whitespace-pre-wrap">
-                            {s.text}
-                          </div>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+                {total > INITIAL_SOURCES_VISIBLE && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSourcesExpanded((e) => !e);
+                      setOpenSourceIndex(null);
+                    }}
+                    className="mt-1.5 text-warp-accent hover:underline focus:outline-none"
+                  >
+                    {sourcesExpanded
+                      ? "Show less"
+                      : `View all ${total} sources`}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
