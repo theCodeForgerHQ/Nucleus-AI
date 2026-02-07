@@ -1,53 +1,58 @@
-import os
+from common.utils import get_env
 import requests
 from requests.auth import HTTPBasicAuth
 
-CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"]
-EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
-API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
-SPACE_KEY = os.environ["CONFLUENCE_SPACE_KEY"]
-CONFLUENCE_ANCESTOR_ID = os.getenv("CONFLUENCE_ANCESTOR_ID")
-
-AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
-HEADERS = {"Accept": "application/json"}
-
 def fetch_page_ids():
-    page_ids = []
-    start = 0
-    limit = 50
+    try:
+        base_url = get_env("CONFLUENCE_BASE_URL")
+        email = get_env("CONFLUENCE_AUTH_USER")
+        api_token = get_env("CONFLUENCE_API_TOKEN")
+        space_key = get_env("CONFLUENCE_SPACE_KEY")
+        ancestor_id = get_env("CONFLUENCE_ANCESTOR_ID")
 
-    while True:
-        params = {
-            "type": "page",
-            "spaceKey": SPACE_KEY,
-            "limit": limit,
-            "start": start,
-        }
+        if not base_url or not email or not api_token or not space_key:
+            return None
 
-        if CONFLUENCE_ANCESTOR_ID:
-            params["ancestors"] = CONFLUENCE_ANCESTOR_ID
+        auth = HTTPBasicAuth(email, api_token)
+        headers = {"Accept": "application/json"}
 
-        r = requests.get(
-            f"{CONFLUENCE_BASE_URL}/rest/api/content",
-            auth=AUTH,
-            headers=HEADERS,
-            params=params,
-            timeout=15,
-        )
+        page_ids = []
+        start = 0
+        limit = 50
 
-        if r.status_code != 200:
-            raise RuntimeError("failed_to_fetch_pages")
+        while True:
+            params = {
+                "type": "page",
+                "spaceKey": space_key,
+                "limit": limit,
+                "start": start,
+            }
 
-        data = r.json()
-        results = data.get("results", [])
+            if ancestor_id:
+                params["ancestors"] = ancestor_id
 
-        for page in results:
-            if page.get("id"):
-                page_ids.append(page["id"])
+            r = requests.get(
+                f"{base_url}/rest/api/content",
+                auth=auth,
+                headers=headers,
+                params=params,
+                timeout=15,
+            )
 
-        if len(results) < limit:
-            break
+            if r.status_code != 200:
+                return page_ids if page_ids else None
 
-        start += limit
+            data = r.json()
+            results = data.get("results", [])
 
-    return page_ids
+            for page in results:
+                pid = page.get("id")
+                if pid:
+                    page_ids.append(pid)
+
+            if len(results) < limit:
+                return page_ids
+
+            start += limit
+    except Exception:
+        return None

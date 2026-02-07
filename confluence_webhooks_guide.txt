@@ -1,0 +1,22 @@
+curl -u ajayaditya2k6@gmail.com:ATATT3xFfGF03pj6oWJVHHSg_bwQGEpezX1ndz9gCSbGZBzu_F-1WdMLTAs106VRpB5mq9bw9RQtWeTQxFJnhgwtgRTBne9B-aO8OJCWOGO0hSVuKvOfNRT443UGQcUhCvXu1DkZp2Mj2E9MWr3Ts2zYp_O8lgEyQ2f_EaJhmT7Dyj47KE0FSmE=3BC59769 \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Nucleus AI",
+    "events": ["page_created","page_updated","page_removed","page_trashed","page_restored","page_unarchived","page_archived"],
+    "url": "https://patient-husky-uniquely.ngrok-free.app/webhooks",
+    "enabled": true
+  }' \
+  https://ajayadityalokchandra.atlassian.net/wiki/rest/webhooks/1.0/webhook
+
+curl -u ajayaditya2k6@gmail.com:ATATT3xFfGF03pj6oWJVHHSg_bwQGEpezX1ndz9gCSbGZBzu_F-1WdMLTAs106VRpB5mq9bw9RQtWeTQxFJnhgwtgRTBne9B-aO8OJCWOGO0hSVuKvOfNRT443UGQcUhCvXu1DkZp2Mj2E9MWr3Ts2zYp_O8lgEyQ2f_EaJhmT7Dyj47KE0FSmE=3BC59769 \
+  -X GET \
+  -H "Content-Type: application/json" \
+  https://ajayadityalokchandra.atlassian.net/wiki/rest/webhooks/1.0/webhook
+
+curl -u ajayaditya2k6@gmail.com:ATATT3xFfGF03pj6oWJVHHSg_bwQGEpezX1ndz9gCSbGZBzu_F-1WdMLTAs106VRpB5mq9bw9RQtWeTQxFJnhgwtgRTBne9B-aO8OJCWOGO0hSVuKvOfNRT443UGQcUhCvXu1DkZp2Mj2E9MWr3Ts2zYp_O8lgEyQ2f_EaJhmT7Dyj47KE0FSmE=3BC59769 \
+  -X DELETE \
+  -H "Content-Type: application/json" \
+  https://ajayadityalokchandra.atlassian.net/wiki/rest/webhooks/1.0/webhook/{webhookId}
+
+  #replace with webhook id for removal

@@ -1,267 +1,460 @@
-import os
 import time
 import uuid
 import requests
-import psycopg2
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, Request, BackgroundTasks
 from datetime import datetime
 from requests.auth import HTTPBasicAuth
-from pinecone import Pinecone
 from common.analytics import (
     record_stage_execution,
     record_indexing_result,
     init_analytics_schema
 )
+from common.utils import get_env, get_db_conn, get_pinecone_client
 
 init_analytics_schema()
 
-DATABASE_URL = os.environ["NEON_DB_URL"]
-PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
-CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"]
-EMAIL = os.environ["CONFLUENCE_AUTH_USER"]
-API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
-
-AUTH = HTTPBasicAuth(EMAIL, API_TOKEN)
-HEADERS = {"Accept": "application/json"}
-
-pc = Pinecone(api_key=PINECONE_API_KEY, timeout=10.0)
-pc_index = pc.Index("kb-pages")
-
 app = FastAPI()
 
-RETRIES = 3
-RETRY_SLEEP = 1.0
+def init_state(conn, page_id):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO kb_page_ingestion_state
+                (page_id, confluence_status, neon_status, pinecone_status)
+                VALUES (%s, 'pending', 'pending', 'pending')
+                ON CONFLICT (page_id) DO NOTHING
+                """,
+                (page_id,),
+            )
+            return True
+    except Exception:
+        return False
 
-def db():
-    return psycopg2.connect(DATABASE_URL)
+def update_state(conn, page_id, field, value):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE kb_page_ingestion_state
+                SET {field} = %s,
+                    updated_at = now()
+                WHERE page_id = %s
+                """,
+                (value, page_id),
+            )
+            return True
+    except Exception:
+        return False
 
-def init_state(page_id):
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO kb_page_ingestion_state
-            (page_id, confluence_status, neon_status, pinecone_status)
-            VALUES (%s, 'pending', 'pending', 'pending')
-            ON CONFLICT (page_id) DO NOTHING
-            """,
-            (page_id,),
+def safe_record_stage(trace_id, stage_name, status, start):
+    try:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="indexer",
+            stage_name=stage_name,
+            status=status,
+            latency_ms=int((time.time() - start) * 1000),
         )
-
-def update_state(page_id, field, value, error=None):
-    with db() as conn, conn.cursor() as cur:
-        cur.execute(
-            f"""
-            UPDATE kb_page_ingestion_state
-            SET {field} = %s,
-                last_error = COALESCE(%s, last_error),
-                updated_at = now()
-            WHERE page_id = %s
-            """,
-            (value, error, page_id),
-        )
-
-def retry(op):
-    last_err = None
-    for _ in range(RETRIES):
-        try:
-            return op()
-        except Exception as e:
-            last_err = str(e)
-            time.sleep(RETRY_SLEEP)
-    raise RuntimeError(last_err)
+        return True
+    except Exception:
+        return False
 
 def fetch_confluence_page(page_id, trace_id):
     start = time.time()
+    base_url = get_env("CONFLUENCE_BASE_URL")
+    email = get_env("CONFLUENCE_AUTH_USER")
+    token = get_env("CONFLUENCE_API_TOKEN")
 
-    def op():
+    if not base_url or not email or not token:
+        safe_record_stage(trace_id, "confluence_page_fetch", "failed", start)
+        return None
+    
+    try:
         r = requests.get(
-            f"{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}?expand=history",
-            auth=AUTH,
-            headers=HEADERS,
-            timeout=10,
+            f"{base_url}/rest/api/content/{page_id}",
+            headers={"Accept": "application/json"},
+            params={"expand": "body.storage"},
+            auth=HTTPBasicAuth(email, token),
+            timeout=20,
         )
+    
         if r.status_code != 200:
-            raise RuntimeError("confluence_fetch_failed")
+            safe_record_stage(trace_id, "confluence_page_fetch", "failed", start)
+            return None
+    
+        safe_record_stage(trace_id, "confluence_page_fetch", "success", start)
         data = r.json()
         return (
             data["title"],
             datetime.fromisoformat(data["history"]["createdDate"].replace("Z", "+00:00")),
-        )
+        )    
 
-    result = retry(op)
-
-    record_stage_execution(
-        trace_id=trace_id,
-        pipeline="indexing",
-        stage_name="confluence",
-        status="success",
-        latency_ms=int((time.time() - start) * 1000),
-    )
-
-    return result
+    except Exception:
+        safe_record_stage(trace_id, "confluence_page_fetch", "failed", start)
+        return None
 
 def build_source_url(page_id):
-    return f"{CONFLUENCE_BASE_URL}/pages/{page_id}"
+    base_url = get_env("CONFLUENCE_BASE_URL")
+    if not base_url:
+        return None
+    return f"{base_url}/pages/{page_id}"
 
-def insert_neon(page_id, title, source_url, created_at, trace_id):
+def insert_neon(conn, page_id, title, source_url, created_at, trace_id):
     start = time.time()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO kb_pages
+                    (page_id, page_title, source_url, created_at, is_stashed)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (page_id) DO NOTHING
+                    """,
+                    (page_id, title, source_url, created_at, True),
+                )
+        safe_record_stage(trace_id, "neon", "success", start)
+        return True
+    except Exception:
+        safe_record_stage(trace_id, "neon", "failed", start)
+        return False
 
-    def op():
-        with db() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO kb_pages
-                (page_id, page_title, source_url, created_at, is_stashed)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (page_id) DO NOTHING
-                """,
-                (page_id, title, source_url, created_at, True),
-            )
-
-    retry(op)
-
-    record_stage_execution(
-        trace_id=trace_id,
-        pipeline="indexing",
-        stage_name="neon",
-        status="success",
-        latency_ms=int((time.time() - start) * 1000),
-    )
-
-def upsert_pinecone(page_id, title, trace_id):
+def upsert_pinecone(pc, page_id, title, trace_id):
     start = time.time()
-
-    def op():
-        pc_index.upsert_records(
+    try:
+        pc.Index("kb-pages").upsert_records(
             namespace="default",
             records=[{"_id": f"page:{page_id}", "page_title": title}],
         )
+        safe_record_stage(trace_id, "pinecone", "success", start)
+        return True
+    except Exception:
+        safe_record_stage(trace_id, "pinecone", "failed", start)
+        return False
 
-    retry(op)
-
-    record_stage_execution(
-        trace_id=trace_id,
-        pipeline="indexing",
-        stage_name="pinecone",
-        status="success",
-        latency_ms=int((time.time() - start) * 1000),
-    )
-
-def process_page(page_id: str):
+def process_page(page_id):
+    conn = get_db_conn()
+    pc = get_pinecone_client()
     trace_id = str(uuid.uuid4())
     start = time.time()
-    stage = None
-    stage_start = None
-    init_state(page_id)
+    init_state(conn, page_id)
 
     try:
-        stage = "confluence"
-        stage_start = time.time()
         title, created_at = fetch_confluence_page(page_id, trace_id)
-        update_state(page_id, "confluence_status", "success")
-
-        stage = "neon"
-        stage_start = time.time()
-        insert_neon(page_id, title, build_source_url(page_id), created_at, trace_id)
-        update_state(page_id, "neon_status", "success")
-
-        stage = "pinecone"
-        stage_start = time.time()
-        upsert_pinecone(page_id, title, trace_id)
-        update_state(page_id, "pinecone_status", "success")
+        if not title or not created_at:
+            return False
+            
+        insert_neon(conn, page_id, title, build_source_url(page_id), created_at, trace_id)
+        upsert_pinecone(pc, page_id, title, trace_id)
 
         record_indexing_result(
             trace_id=trace_id,
             page_id=page_id,
-            final_status="success",
+            final_status="true",
             total_latency_ms=int((time.time() - start) * 1000),
         )
 
-    except Exception as e:
-        err = str(e)
-        if stage:
-            update_state(page_id, f"{stage}_status", "failed", err)
-            record_stage_execution(
-                trace_id=trace_id,
-                pipeline="indexing",
-                stage_name=stage,
-                status="failed",
-                latency_ms=int((time.time() - stage_start) * 1000),
-            )
+        return True
 
+    except Exception:
         record_indexing_result(
             trace_id=trace_id,
             page_id=page_id,
             final_status="failed",
             total_latency_ms=int((time.time() - start) * 1000),
         )
+        return False
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 @app.post("/")
 async def page_created(req: Request, bg: BackgroundTasks):
-    body = await req.json()
-    page_id = body["page_id"]
-    bg.add_task(process_page, page_id)
-    return {"accepted": True, "page_id": page_id}
+    try:
+        body = await req.json()
+        page_id = body["page_id"]
+        bg.add_task(process_page, page_id)
+        return {"accepted": True, "page_id": page_id}
+    except Exception:
+        return {"accepted": False}
 
 @app.post("/retry/confluence")
 def retry_confluence(req: dict):
-    page_id = req["page_id"]
     trace_id = str(uuid.uuid4())
+    conn = None
     try:
+        conn = get_db_conn()
+        if conn is None:
+            return {"accepted": False, "reason": "db_unavailable"}
+
+        page_id = req["page_id"]
         title, created_at = fetch_confluence_page(page_id, trace_id)
-        update_state(page_id, "confluence_status", "success")
+        update_state(conn, page_id, "confluence_status", "success")
         return {
             "page_id": page_id,
             "title": title,
             "created_at": created_at.isoformat(),
         }
-    except Exception as e:
-        update_state(page_id, "confluence_status", "failed", str(e))
-        raise HTTPException(status_code=500)
 
+    except Exception:
+        if conn is not None:
+            update_state(conn, page_id, "confluence_status", "failure")
+        return {"accepted": False}
+        
 @app.post("/retry/neon")
 def retry_neon(req: dict):
-    page_id = req["page_id"]
-    title = req["title"]
-    created_at = datetime.fromisoformat(req["created_at"])
     trace_id = str(uuid.uuid4())
-    start = time.time()
+    conn = None
     try:
-        insert_neon(page_id, title, build_source_url(page_id), created_at, trace_id)
-        update_state(page_id, "neon_status", "success")
+        conn = get_db_conn()
+        if conn is None:
+            return {"accepted": False, "reason": "db_unavailable"}
+
+        page_id = req["page_id"]
+        title = req["title"]
+        created_at = datetime.fromisoformat(req["created_at"])
+
+        insert_neon(conn, page_id, title, build_source_url(page_id), created_at, trace_id)
+        update_state(conn, page_id, "neon_status", "success")
         return {"page_id": page_id}
-    except Exception as e:
-        update_state(page_id, "neon_status", "failed", str(e))
-        record_stage_execution(
-            trace_id=trace_id,
-            pipeline="indexing",
-            stage_name="neon",
-            status="failed",
-            latency_ms=int((time.time() - start) * 1000),
-        )
-        raise HTTPException(status_code=500)
+
+    except Exception:
+        if conn is not None:
+            update_state(conn, page_id, "neon_status", "failed")
+        return {"accepted": False}
 
 @app.post("/retry/pinecone")
 def retry_pinecone(req: dict):
-    page_id = req["page_id"]
-    title = req["title"]
     trace_id = str(uuid.uuid4())
+    conn = None
+    try:
+        conn = get_db_conn()
+        if conn is None:
+            return {"accepted": False, "reason": "db_unavailable"}
+
+        pc = get_pinecone_client()
+        page_id = req["page_id"]
+        title = req["title"]
+
+        upsert_pinecone(pc, page_id, title, trace_id)
+        update_state(conn, page_id, "pinecone_status", "success")
+        return {"page_id": page_id}
+
+    except Exception:
+        if conn is not None:
+            update_state(conn, page_id, "pinecone_status", "failed")
+        return {"accepted": False}
+    
+@app.post("/webhooks/page-created")
+async def page_created(request: Request, background_tasks: BackgroundTasks):
+    try:
+        payload = await request.json()
+        page_id = payload["page"]["idAsString"]
+        background_tasks.add_task(process_page, page_id)
+        return {"accepted": True, "page_id": page_id}
+    except Exception:
+        return {"accepted": False}
+
+@app.post("/webhooks/page-updated")
+async def page_updated_webhook(request: Request, background_tasks: BackgroundTasks):
+    trace_id = str(uuid.uuid4())
+
+    try:
+        payload = await request.json()
+        page_id = payload["page"]["idAsString"]
+        title = payload["page"]["title"]
+
+        conn = get_db_conn()
+        pc = get_pinecone_client()
+
+        background_tasks.add_task(page_updated, conn, trace_id, page_id)
+        background_tasks.add_task(page_title_updated, conn, pc, trace_id, page_id, title)
+
+        return {"accepted": True, "page_id": page_id}
+    except Exception:
+        return {"accepted": False}
+
+@app.post("/webhooks/page-deleted")
+async def page_deleted(request: Request, background_tasks: BackgroundTasks):
+    trace_id = str(uuid.uuid4())
+    try:
+        payload = await request.json()
+        page_id = payload["page"]["idAsString"]
+
+        conn = get_db_conn()
+        background_tasks.add_task(page_removed, conn, trace_id, page_id)
+
+        return {"accepted": True, "page_id": page_id}
+    except Exception:
+        return {"accepted": False}
+
+@app.post("/webhooks/page-restored")
+async def page_restored(request: Request, background_tasks: BackgroundTasks):
+    trace_id = str(uuid.uuid4())
+    try:
+        conn = get_db_conn()
+        payload = await request.json()
+        page_id = payload["page"]["idAsString"]
+
+        background_tasks.add_task(page_restored, conn, trace_id, page_id)
+        return {"accepted": True, "page_id": page_id}
+    except Exception:
+        return {"accepted": False}
+
+def page_updated(conn, trace_id, page_id):
     start = time.time()
     try:
-        upsert_pinecone(page_id, title, trace_id)
-        update_state(page_id, "pinecone_status", "success")
-        return {"page_id": page_id}
-    except Exception as e:
-        update_state(page_id, "pinecone_status", "failed", str(e))
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_pages
+                SET is_stashed = TRUE
+                WHERE page_id = %s
+                """,
+                (page_id,),
+            )
         record_stage_execution(
             trace_id=trace_id,
-            pipeline="indexing",
-            stage_name="pinecone",
+            pipeline="webhook",
+            stage_name="page_stashed",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return True
+    except Exception:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_stashed",
             status="failed",
             latency_ms=int((time.time() - start) * 1000),
         )
-        raise HTTPException(status_code=500)
+        return False
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+def page_removed(conn, trace_id, page_id):
+    start = time.time()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_chunks
+                SET is_active = FALSE
+                WHERE page_id = %s;
+
+                UPDATE kb_images
+                SET is_active = FALSE
+                WHERE page_id = %s;
+                """,
+                (page_id, page_id),
+            )
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_deleted",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return True
+    except Exception:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_deleted",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return False
+
+def page_restored(conn, trace_id, page_id):
+    start = time.time()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_chunks
+                SET is_active = TRUE
+                WHERE page_id = %s;
+
+                UPDATE kb_images
+                SET is_active = TRUE
+                WHERE page_id = %s;
+                """,
+                (page_id, page_id),
+            )
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_restored",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return True
+    except Exception:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_restored",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return False
+
+def page_title_updated(conn, pc, trace_id, page_id, new_title):
+    start = time.time()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT page_title FROM kb_pages WHERE page_id = %s",
+                (page_id,),
+            )
+            result = cur.fetchone()
+
+        if not result:
+            record_stage_execution(
+                trace_id=trace_id,
+                pipeline="webhook",
+                stage_name="page_title_updated",
+                status="success",
+                latency_ms=int((time.time() - start) * 1000),
+            )
+            return True
+
+        current_title = result[0]
+
+        if current_title == new_title:
+            record_stage_execution(
+                trace_id=trace_id,
+                pipeline="webhook",
+                stage_name="page_title_updated",
+                status="success",
+                latency_ms=int((time.time() - start) * 1000),
+            )
+            return True
+
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE kb_pages SET page_title = %s WHERE page_id = %s",
+                (new_title, page_id),
+            )
+
+        upsert_pinecone(pc, page_id, new_title, trace_id)
+
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_title_updated",
+            status="success",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return True
+    except Exception:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_title_updated",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return False
