@@ -3,15 +3,16 @@
 @tailwind utilities;
 
 :root {
-  --warp-bg: #181818;
-  --warp-surface: #1e1e1e;
-  --warp-border: #2d2d2d;
-  --warp-fg: #d8d8d8;
-  --warp-muted: #858585;
-  --warp-accent: #7cafc2;
-  --warp-green: #a1b56c;
-  --warp-red: #ab4642;
-  --warp-yellow: #f7ca88;
+  /* Warp-style: dark black bg, white/light fonts */
+  --warp-bg: #0a0a0a;
+  --warp-surface: #141414;
+  --warp-border: #262626;
+  --warp-fg: #fafafa;
+  --warp-muted: #a3a3a3;
+  --warp-accent: #38bdf8;
+  --warp-green: #4ade80;
+  --warp-red: #f87171;
+  --warp-yellow: #fbbf24;
 }
 
 html,
@@ -25,7 +26,7 @@ body {
 /* Warp-style block border */
 .terminal-block {
   border-left: 2px solid var(--warp-border);
-  background: rgba(30, 30, 30, 0.4);
+  background: rgba(20, 20, 20, 0.5);
 }
 
 .terminal-block:hover {

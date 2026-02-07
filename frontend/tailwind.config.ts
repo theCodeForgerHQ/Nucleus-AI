@@ -10,15 +10,15 @@ const config: Config = {
     extend: {
       colors: {
         warp: {
-          bg: "#181818",
-          surface: "#1e1e1e",
-          border: "#2d2d2d",
-          fg: "#d8d8d8",
-          muted: "#858585",
-          accent: "#7cafc2",
-          green: "#a1b56c",
-          red: "#ab4642",
-          yellow: "#f7ca88",
+          bg: "#0a0a0a",
+          surface: "#141414",
+          border: "#262626",
+          fg: "#fafafa",
+          muted: "#a3a3a3",
+          accent: "#38bdf8",
+          green: "#4ade80",
+          red: "#f87171",
+          yellow: "#fbbf24",
         },
       },
       fontFamily: {
