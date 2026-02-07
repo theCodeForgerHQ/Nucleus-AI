@@ -112,15 +112,15 @@ export function TerminalBlock({
                           {firstLine}
                         </span>
                       </div>
-                      {/* Hover popover above: full content, glass bg */}
-                      <div className="absolute bottom-full left-0 mb-1.5 w-full min-w-[280px] max-w-md max-h-56 overflow-y-auto rounded border border-warp-border bg-warp-surface/90 backdrop-blur-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 pointer-events-none group-hover:pointer-events-auto">
-                        <div className="p-3 text-xs sticky top-0 border-b border-warp-border/60 bg-warp-surface/80 backdrop-blur-sm">
+                      {/* Hover popover: wide horizontal panel, single view; scroll only when content overflows */}
+                      <div className="absolute bottom-full left-0 mb-1.5 w-[min(90vw,1100px)] min-w-[280px] max-h-[75vh] overflow-y-auto overflow-x-hidden rounded border border-warp-border bg-warp-surface/95 backdrop-blur-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 pointer-events-none group-hover:pointer-events-auto">
+                        <div className="p-4 text-xs sticky top-0 border-b border-warp-border/60 bg-warp-surface/95 backdrop-blur-sm z-10">
                           <span className="text-warp-accent">[{s.page_id}]</span>{" "}
                           <span className="text-warp-fg font-medium">
                             {s.section}
                           </span>
                         </div>
-                        <div className="p-3 text-warp-muted text-xs leading-relaxed whitespace-pre-wrap">
+                        <div className="p-4 text-warp-muted text-sm leading-relaxed whitespace-pre-wrap">
                           {s.text}
                         </div>
                       </div>
