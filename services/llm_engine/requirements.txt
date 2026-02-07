@@ -17,4 +17,4 @@ numpy
 scipy
 clickhouse_connect
 promptlayer
-
+ddgs>=5.0.0
