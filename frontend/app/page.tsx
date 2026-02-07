@@ -64,6 +64,9 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const blockRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [activeBlockIndex, setActiveBlockIndex] = useState<number>(0);
+  const ratioRef = useRef<number[]>([]);
 
   // Restore conversation from localStorage after mount (client-only)
   useEffect(() => {
@@ -174,12 +177,48 @@ export default function Home() {
     saveBlocksToStorage(blocks);
   }, [blocks]);
 
-  // Images from the most recent response that has images (for right panel)
-  const sidebarImages =
-    [...blocks]
-      .reverse()
-      .find((b) => b.response && b.response.images.length > 0)?.response
-      ?.images ?? [];
+  // When blocks change (e.g. new message), default to showing the latest block's images
+  useEffect(() => {
+    if (blocks.length > 0) {
+      setActiveBlockIndex(blocks.length - 1);
+    }
+    ratioRef.current = new Array(blocks.length).fill(0);
+    blockRefs.current = blockRefs.current.slice(0, blocks.length);
+  }, [blocks.length]);
+
+  // Intersection Observer: which block is in view → show that block's images in the sidebar
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root || blocks.length === 0) return;
+
+    ratioRef.current = new Array(blocks.length).fill(0);
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const index = Number((entry.target as HTMLElement).dataset.blockIndex);
+          if (Number.isFinite(index) && index >= 0 && index < blocks.length) {
+            ratioRef.current[index] = entry.intersectionRatio;
+          }
+        }
+        const ratios = ratioRef.current;
+        let best = 0;
+        for (let i = 0; i < ratios.length; i++) {
+          if (ratios[i] > ratios[best]) best = i;
+        }
+        setActiveBlockIndex(best);
+      },
+      { root, rootMargin: "-15% 0px -25% 0px", threshold: [0, 0.1, 0.25, 0.5, 0.75, 1] }
+    );
+
+    const elements = root.querySelectorAll("[data-block-index]");
+    elements.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, [blocks.length]);
+
+  // Images for the block currently in view (dynamic by scroll position)
+  const sidebarImages = blocks[activeBlockIndex]?.response?.images ?? [];
 
   // No split until user has sent at least one message; then smooth transition to 75/25
   const hasConversation = blocks.length > 0;
@@ -210,15 +249,22 @@ export default function Home() {
               </p>
             </div>
           )}
-          {blocks.map((block) => (
-            <TerminalBlock
+          {blocks.map((block, i) => (
+            <div
               key={block.id}
-              prompt={block.prompt}
-              response={block.response}
-              isStreaming={block.isStreaming}
-              streamingAnswer={block.streamingAnswer}
-              pipelineStage={block.pipelineStage}
-            />
+              ref={(el) => {
+                blockRefs.current[i] = el;
+              }}
+              data-block-index={i}
+            >
+              <TerminalBlock
+                prompt={block.prompt}
+                response={block.response}
+                isStreaming={block.isStreaming}
+                streamingAnswer={block.streamingAnswer}
+                pipelineStage={block.pipelineStage}
+              />
+            </div>
           ))}
           {error && (
             <div className="text-warp-red text-sm py-2" role="alert">
