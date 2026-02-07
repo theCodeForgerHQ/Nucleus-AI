@@ -36,9 +36,9 @@ def set_all_fatal(page_id, err, conn):
                 """,
                 (err, page_id),
             )
-        return None
+        return True
     except Exception:
-        return None
+        return False
 
 def call_indexer(path, payload):
     try:
