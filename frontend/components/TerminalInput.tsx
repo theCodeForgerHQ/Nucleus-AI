@@ -11,6 +11,8 @@ type TerminalInputProps = {
   onSubmit: () => void;
   disabled?: boolean;
   placeholder?: string;
+  /** When this goes from true to false, input is refocused (e.g. after stream ends) */
+  loading?: boolean;
 };
 
 export function TerminalInput({
@@ -19,6 +21,7 @@ export function TerminalInput({
   onSubmit,
   disabled = false,
   placeholder = "",
+  loading = false,
 }: TerminalInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
@@ -51,6 +54,18 @@ export function TerminalInput({
     inputRef.current?.focus();
   }, []);
 
+  // Refocus input on any click elsewhere so the bar is always the typing target
+  useEffect(() => {
+    const onDocumentClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (inputRef.current?.contains(target)) return;
+      if ((target as Element).closest?.("a, button, [contenteditable], [role='button']")) return;
+      inputRef.current?.focus();
+    };
+    document.addEventListener("click", onDocumentClick);
+    return () => document.removeEventListener("click", onDocumentClick);
+  }, []);
+
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
@@ -61,19 +76,30 @@ export function TerminalInput({
     updateCaretPosition();
   }, [value, updateCaretPosition]);
 
+  const prevLoadingRef = useRef(loading);
+  useEffect(() => {
+    if (prevLoadingRef.current && !loading) {
+      inputRef.current?.focus();
+    }
+    prevLoadingRef.current = loading;
+  }, [loading]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (value.trim()) onSubmit();
+      if (value.trim()) {
+        onSubmit();
+        requestAnimationFrame(() => inputRef.current?.focus());
+      }
     }
   };
 
   return (
-    <div className="flex items-baseline gap-0 w-full py-3 px-4">
-      <span className="text-warp-green shrink-0 select-none">
+    <div className="flex items-center gap-0 w-full min-h-[3.5rem] py-4 px-4">
+      <span className="text-warp-green shrink-0 select-none self-center">
         {PROMPT_PREFIX}
       </span>
-      <div className="relative flex-1 min-w-0 flex items-baseline pl-2">
+      <div className="relative flex-1 min-w-0 flex items-center pl-2 min-h-[2.5rem]">
         <input
           ref={inputRef}
           type="text"

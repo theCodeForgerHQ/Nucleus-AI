@@ -198,6 +198,19 @@ export default function Home() {
     abortControllerRef.current = null;
   }, []);
 
+  // Ctrl+C / Cmd+C stops generation when streaming
+  useEffect(() => {
+    if (!loading) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        handleStopGenerating();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loading, handleStopGenerating]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
@@ -342,17 +355,20 @@ export default function Home() {
             onSubmit={handleSubmit}
             disabled={loading}
             placeholder="Ask anything..."
+            loading={loading}
           />
         </div>
         {loading && (
           <button
             type="button"
             onClick={handleStopGenerating}
-            className="shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-warp-accent hover:opacity-90 transition-opacity mr-3"
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full mr-3 font-mono text-sm hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: "#b07d7d", color: "#1a1a1a" }}
             title="Stop generating"
             aria-label="Stop generating"
           >
-            <span className="w-2 h-2 bg-white rounded-sm" />
+            <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: "#1a1a1a" }} />
+            <span>^C</span>
           </button>
         )}
       </div>
