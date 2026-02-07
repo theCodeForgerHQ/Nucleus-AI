@@ -1,9 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+
+export type ImageWithBlock = {
+  url: string;
+  page_id: string;
+  caption: string | null;
+  blockIndex: number;
+};
 
 type ImagesPanelProps = {
-  images: { url: string; page_id: string; caption: string | null }[];
+  images: ImageWithBlock[];
+  /** When this changes, panel smooth-scrolls to show the first image for this block */
+  scrollToBlockIndex?: number | null;
   /** When true and no images yet, show engaging skeleton placeholders instead of static text */
   isLoading?: boolean;
 };
@@ -17,7 +26,22 @@ function ImageSkeleton({ className }: { className?: string }) {
   );
 }
 
-export function ImagesPanel({ images, isLoading = false }: ImagesPanelProps) {
+export function ImagesPanel({
+  images,
+  scrollToBlockIndex = null,
+  isLoading = false,
+}: ImagesPanelProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // When scrollToBlockIndex changes, smooth-scroll so that block's first image is in view
+  useEffect(() => {
+    if (scrollToBlockIndex == null || !scrollRef.current) return;
+    const first = scrollRef.current.querySelector(
+      `[data-block-index="${scrollToBlockIndex}"]`
+    );
+    first?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [scrollToBlockIndex]);
+
   if (images.length === 0) {
     if (isLoading) {
       return (
@@ -36,19 +60,20 @@ export function ImagesPanel({ images, isLoading = false }: ImagesPanelProps) {
   }
 
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden flex flex-col gap-3 py-2 pr-2">
+    <div
+      ref={scrollRef}
+      className="h-full overflow-y-auto overflow-x-hidden flex flex-col gap-3 py-2 pr-2"
+    >
       {images.map((img, i) => (
-        <ImageCard key={i} img={img} />
+        <div key={`${img.blockIndex}-${i}`} data-block-index={img.blockIndex}>
+          <ImageCard img={img} />
+        </div>
       ))}
     </div>
   );
 }
 
-function ImageCard({
-  img,
-}: {
-  img: { url: string; page_id: string; caption: string | null };
-}) {
+function ImageCard({ img }: { img: ImageWithBlock }) {
   const [loaded, setLoaded] = useState(false);
 
   return (

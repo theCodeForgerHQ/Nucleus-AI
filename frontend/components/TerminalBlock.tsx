@@ -26,6 +26,9 @@ const STAGE_LABELS: Record<StreamStagePayload["stage"], string> = {
 const INITIAL_SOURCES_VISIBLE = 4;
 
 type TerminalBlockProps = {
+  blockIndex?: number;
+  /** When user clicks "View images", scroll the images panel to this block's images */
+  onScrollToImages?: () => void;
   prompt: string;
   response: QueryResponse | null;
   isStreaming?: boolean;
@@ -36,6 +39,8 @@ type TerminalBlockProps = {
 };
 
 export function TerminalBlock({
+  blockIndex,
+  onScrollToImages,
   prompt,
   response,
   isStreaming = false,
@@ -98,14 +103,25 @@ export function TerminalBlock({
 
       {response && (
         <div className="mt-3 space-y-3 text-sm">
-          <div
-            className={
-              response.answer === "Not found in knowledge base."
-                ? "text-warp-red whitespace-pre-wrap break-words leading-relaxed"
-                : "text-warp-fg whitespace-pre-wrap break-words leading-relaxed"
-            }
-          >
-            {response.answer}
+          <div className="flex flex-wrap items-start gap-2">
+            <div
+              className={`min-w-0 flex-1 ${
+                response.answer === "Not found in knowledge base."
+                  ? "text-warp-red whitespace-pre-wrap break-words leading-relaxed"
+                  : "text-warp-fg whitespace-pre-wrap break-words leading-relaxed"
+              }`}
+            >
+              {response.answer}
+            </div>
+            {response.images.length > 0 && onScrollToImages && (
+              <button
+                type="button"
+                onClick={onScrollToImages}
+                className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-warp-border/60 bg-warp-surface/60 text-warp-accent hover:bg-warp-surface hover:border-warp-accent transition-colors"
+              >
+                View images
+              </button>
+            )}
           </div>
           {response.sources.length > 0 && (() => {
             const total = response.sources.length;

@@ -217,8 +217,15 @@ export default function Home() {
     return () => observer.disconnect();
   }, [blocks.length]);
 
-  // Images for the block currently in view (dynamic by scroll position)
-  const sidebarImages = blocks[activeBlockIndex]?.response?.images ?? [];
+  // All images cumulative: newest query on top, each with blockIndex for scroll-into-view
+  // When a query has 0 images, nothing is added — previous images stay (order: q2, q2, q1, q1, q1)
+  const sidebarImagesWithBlock: { url: string; page_id: string; caption: string | null; blockIndex: number }[] = [];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const imgs = blocks[i].response?.images ?? [];
+    for (const img of imgs) {
+      sidebarImagesWithBlock.push({ ...img, blockIndex: i });
+    }
+  }
 
   // No split until user has sent at least one message; then smooth transition to 75/25
   const hasConversation = blocks.length > 0;
@@ -258,6 +265,8 @@ export default function Home() {
               data-block-index={i}
             >
               <TerminalBlock
+                blockIndex={i}
+                onScrollToImages={() => setActiveBlockIndex(i)}
                 prompt={block.prompt}
                 response={block.response}
                 isStreaming={block.isStreaming}
@@ -283,7 +292,11 @@ export default function Home() {
           <div className="shrink-0 px-2 py-2 border-b border-warp-border text-warp-muted text-xs font-medium whitespace-nowrap">
             Images
           </div>
-          <ImagesPanel images={sidebarImages} isLoading={loading} />
+          <ImagesPanel
+            images={sidebarImagesWithBlock}
+            scrollToBlockIndex={activeBlockIndex}
+            isLoading={loading}
+          />
         </aside>
       </div>
 
