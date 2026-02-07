@@ -17,8 +17,9 @@ def safe_record_stage(trace_id, stage_name, status, start):
             status=status,
             latency_ms=int((time.time() - start) * 1000),
         )
+        return True
     except Exception:
-        return None
+        return False
 
 def sha256(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
