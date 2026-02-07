@@ -46,58 +46,69 @@ export async function postQueryStream(
     onStage?: (stage: StreamStagePayload["stage"]) => void;
     onDone: (payload: StreamDonePayload) => void;
     onError: (message: string) => void;
-  }
+    onAbort?: () => void;
+  },
+  signal?: AbortSignal
 ): Promise<void> {
-  const res = await fetch("/api/query/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, history }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    callbacks.onError(data.error || `Stream failed: ${res.status}`);
-    return;
-  }
-  const reader = res.body?.getReader();
-  if (!reader) {
-    callbacks.onError("No response body");
-    return;
-  }
-  const decoder = new TextDecoder();
-  let buffer = "";
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const raw = line.slice(6);
-          if (raw === "[DONE]" || raw === "") continue;
-          try {
-            const data = JSON.parse(raw) as
-              | StreamTokenPayload
-              | StreamDonePayload
-              | StreamErrorPayload
-              | StreamStagePayload;
-            if (data.type === "token") {
-              callbacks.onToken(data.delta);
-            } else if (data.type === "stage") {
-              callbacks.onStage?.(data.stage);
-            } else if (data.type === "done") {
-              callbacks.onDone(data);
-            } else if (data.type === "error") {
-              callbacks.onError(data.error);
+    const res = await fetch("/api/query/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, history }),
+      signal,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      callbacks.onError(data.error || `Stream failed: ${res.status}`);
+      return;
+    }
+    const reader = res.body?.getReader();
+    if (!reader) {
+      callbacks.onError("No response body");
+      return;
+    }
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const raw = line.slice(6);
+            if (raw === "[DONE]" || raw === "") continue;
+            try {
+              const data = JSON.parse(raw) as
+                | StreamTokenPayload
+                | StreamDonePayload
+                | StreamErrorPayload
+                | StreamStagePayload;
+              if (data.type === "token") {
+                callbacks.onToken(data.delta);
+              } else if (data.type === "stage") {
+                callbacks.onStage?.(data.stage);
+              } else if (data.type === "done") {
+                callbacks.onDone(data);
+              } else if (data.type === "error") {
+                callbacks.onError(data.error);
+              }
+            } catch {
+              // ignore parse errors for partial chunks
             }
-          } catch {
-            // ignore parse errors for partial chunks
           }
         }
       }
+    } finally {
+      reader.releaseLock();
     }
-  } finally {
-    reader.releaseLock();
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      callbacks.onAbort?.();
+    } else {
+      callbacks.onError(e instanceof Error ? e.message : "Stream failed");
+    }
   }
 }

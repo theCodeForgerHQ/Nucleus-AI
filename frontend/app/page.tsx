@@ -67,6 +67,7 @@ export default function Home() {
   const blockRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [activeBlockIndex, setActiveBlockIndex] = useState<number>(0);
   const ratioRef = useRef<number[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Restore conversation from localStorage after mount (client-only)
   useEffect(() => {
@@ -103,67 +104,99 @@ export default function Home() {
       },
     ]);
     setLoading(true);
-
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     const history = buildHistory();
-    postQueryStream(q, history, {
-      onStage: (stage) => {
-        setBlocks((prev) =>
-          prev.map((b) => (b.id === id ? { ...b, pipelineStage: stage } : b))
-        );
+
+    postQueryStream(
+      q,
+      history,
+      {
+        onStage: (stage) => {
+          setBlocks((prev) =>
+            prev.map((b) => (b.id === id ? { ...b, pipelineStage: stage } : b))
+          );
+        },
+        onToken: (delta) => {
+          setBlocks((prev) =>
+            prev.map((b) =>
+              b.id === id
+                ? { ...b, streamingAnswer: b.streamingAnswer + delta }
+                : b
+            )
+          );
+        },
+        onDone: (payload) => {
+          const answer = payload.replaceAnswer ?? payload.answer;
+          setBlocks((prev) =>
+            prev.map((b) =>
+              b.id === id
+                ? {
+                    ...b,
+                    response: {
+                      query: q,
+                      answer,
+                      sources: payload.sources,
+                      images: payload.images,
+                    },
+                    isStreaming: false,
+                    streamingAnswer: "",
+                  }
+                : b
+            )
+          );
+          setLoading(false);
+        },
+        onError: (message) => {
+          setError(message);
+          setBlocks((prev) =>
+            prev.map((b) =>
+              b.id === id
+                ? {
+                    ...b,
+                    response: {
+                      query: q,
+                      answer: `Error: ${message}`,
+                      sources: [],
+                      images: [],
+                    },
+                    isStreaming: false,
+                    streamingAnswer: "",
+                  }
+                : b
+            )
+          );
+          setLoading(false);
+        },
+        onAbort: () => {
+          setBlocks((prev) =>
+            prev.map((b) =>
+              b.id === id
+                ? {
+                    ...b,
+                    response: {
+                      query: q,
+                      answer: b.streamingAnswer || "(Stopped)",
+                      sources: [],
+                      images: [],
+                    },
+                    isStreaming: false,
+                    streamingAnswer: "",
+                  }
+                : b
+            )
+          );
+          setLoading(false);
+        },
       },
-      onToken: (delta) => {
-        setBlocks((prev) =>
-          prev.map((b) =>
-            b.id === id
-              ? { ...b, streamingAnswer: b.streamingAnswer + delta }
-              : b
-          )
-        );
-      },
-      onDone: (payload) => {
-        const answer = payload.replaceAnswer ?? payload.answer;
-        setBlocks((prev) =>
-          prev.map((b) =>
-            b.id === id
-              ? {
-                  ...b,
-                  response: {
-                    query: q,
-                    answer,
-                    sources: payload.sources,
-                    images: payload.images,
-                  },
-                  isStreaming: false,
-                  streamingAnswer: "",
-                }
-              : b
-          )
-        );
-        setLoading(false);
-      },
-      onError: (message) => {
-        setError(message);
-        setBlocks((prev) =>
-          prev.map((b) =>
-            b.id === id
-              ? {
-                  ...b,
-                  response: {
-                    query: q,
-                    answer: `Error: ${message}`,
-                    sources: [],
-                    images: [],
-                  },
-                  isStreaming: false,
-                  streamingAnswer: "",
-                }
-              : b
-          )
-        );
-        setLoading(false);
-      },
-    });
+      controller.signal
+    );
   }, [input, loading, buildHistory]);
+
+  const handleStopGenerating = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -300,14 +333,29 @@ export default function Home() {
         </aside>
       </div>
 
-      {/* Fixed input at bottom */}
-      <TerminalInput
-        value={input}
-        onChange={setInput}
-        onSubmit={handleSubmit}
-        disabled={loading}
-        placeholder="Ask anything..."
-      />
+      {/* Fixed input bar: input + circular stop button at end when streaming */}
+      <div className="shrink-0 flex items-center border-t border-warp-border bg-warp-bg">
+        <div className="flex-1 min-w-0">
+          <TerminalInput
+            value={input}
+            onChange={setInput}
+            onSubmit={handleSubmit}
+            disabled={loading}
+            placeholder="Ask anything..."
+          />
+        </div>
+        {loading && (
+          <button
+            type="button"
+            onClick={handleStopGenerating}
+            className="shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-warp-accent hover:opacity-90 transition-opacity mr-3"
+            title="Stop generating"
+            aria-label="Stop generating"
+          >
+            <span className="w-2 h-2 bg-white rounded-sm" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
