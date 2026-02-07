@@ -20,4 +20,4 @@ def rerank(req: RerankRequest):
         scores = reranker.predict(pairs)
         return {"scores": [float(s) for s in scores]}
     except Exception:
-        return {"scores": []}
+        return None

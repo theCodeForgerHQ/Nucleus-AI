@@ -41,10 +41,12 @@ async def nli(request: dict):
         if premise is None or hypothesis is None:
             return None
         state = load_model()
-        if not state:
+        if state is None:
             return None
         tokenizer, model = state
         result = run_nli(tokenizer, model, premise, hypothesis)
+        if result is None:
+            return None
         return result
     except Exception:
         return None
