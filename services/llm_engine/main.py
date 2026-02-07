@@ -233,9 +233,12 @@ def call_groq_llm(trace_id, query: str, context: str, history: List[Dict[str, st
                     "You are an internal company knowledge assistant. "
                     "Answer only using the provided context. "
                     "If the answer is not explicitly in the context, reply: "
-                    "'Not found in knowledge base.'"
-                ),
+                    "'Not found in knowledge base.' "
+                    "After answering, always add one relevant follow-up question that helps the user explore the topic deeper. "
+                    "The follow-up must be based only on the context and the user's question."
+                    ),
             }
+
         ]
         if history:
             messages.extend(history)
@@ -361,6 +364,55 @@ class AgentState(TypedDict):
     contradiction_score: float
     final_output: Optional[dict]
 
+@traceable
+def classify_intent(trace_id: str, query: str) -> str:
+    prompt = f"""
+    Decide if the user query needs specific facts from the company's internal knowledge base or if it is a general interaction.
+    
+    'knowledge': Questions about Alphabet and its funded companies. Questions relating to Google and its products or updates.
+    'general': Greetings, identity questions (who are you), small talk like hey, hi.
+    
+    User Query: {query}
+    
+    Respond with exactly one word: 'knowledge' or 'general'.
+    """
+    response = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,
+        max_tokens=5
+    )
+    return response.choices[0].message.content.strip().lower()
+
+def intent_router_node(state: AgentState):
+    intent = classify_intent(state["trace_id"], state["query"])
+    if "knowledge" in intent:
+        return "knowledge"
+    return "general"
+
+def general_reply_node(state: AgentState):
+    start = time.time()
+    response = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {
+                "role": "system", 
+                "content": (
+                    "You are a helpful company internal knowledge assistant. "
+                    "Greet the user or respond to their general query politely. "
+                    "After your response, always include a proactive follow-up question inviting them "
+                    "to ask about Alphabet, Google products, or company updates."
+                )
+            },
+            {"role": "user", "content": state["query"]}
+        ],
+        temperature=0.7,
+        max_tokens=400,
+    )
+    answer = response.choices[0].message.content
+    record_stage_execution(state["trace_id"], "query", "general_reply", "success", int((time.time() - start) * 1000))
+    return {"final_output": {"query": state["query"], "answer": answer, "sources": [], "images": []}}
+
 def retrieve_node(state: AgentState):
     chunk_scores = search_with_text(state["trace_id"], chunks_index, state["query"], TOP_K_CHUNKS)
     page_scores = search_with_text(state["trace_id"], pages_index, state["query"], TOP_K_PAGES)
@@ -389,14 +441,11 @@ def _get_images(trace_id, query, context):
         image_scores = search_with_text(trace_id, images_index, image_search_input, 20)
         if not image_scores:
             return []
-        
         filtered_ids = [img_id for img_id, score in image_scores.items() if score >= IMAGE_SCORE_THRESHOLD]
         if not filtered_ids:
             return []
-
         fetched_images = fetch_images_from_neon(trace_id, filtered_ids)
         ordered_images = sorted(fetched_images, key=lambda img: image_scores.get(img.get("image_hash"), 0), reverse=True)
-        
         return [{"url": img.get("url"), "page_id": img.get("page_id"), "caption": img.get("caption")} for img in ordered_images[:TOP_K_IMAGES]]
     except Exception:
         return []
@@ -406,18 +455,14 @@ def generation_node(state: AgentState):
         record_query_result(state["trace_id"], state["query"], "no_context", 0, 0, 0, 0.0, int((time.time() - state["start_total"]) * 1000))
         web_findings = call_web_search_fallback(state["trace_id"], state["query"])
         return {"final_output": {"query": state["query"], "answer": "Not found in knowledge base.", "web_findings": web_findings, "sources": [], "images": []}}
-
     with ThreadPoolExecutor() as executor:
         llm_future = executor.submit(call_groq_llm, state["trace_id"], state["query"], state["context"], state["history"])
         image_future = executor.submit(_get_images, state["trace_id"], state["query"], state["context"])
-        
         answer = llm_future.result()
         images = image_future.result()
-
     web_findings = None
     if "Not found in knowledge base" in answer:
         web_findings = call_web_search_fallback(state["trace_id"], state["query"])
-        
     return {"answer": answer, "web_findings": web_findings, "images": images}
 
 def validation_node(state: AgentState):
@@ -428,7 +473,7 @@ def validation_node(state: AgentState):
         record_query_result(state["trace_id"], state["query"], "contradicted", len(state["top_chunks"]), len(state["context"]), len(state["answer"]), contradiction_score, int((time.time() - state["start_total"]) * 1000))
         return {"final_output": {"query": state["query"], "answer": "LLM response contradicted the knowledge base.", "sources": [], "images": []}}
     if not validate_answer_length(state["trace_id"], state["answer"]):
-        record_query_result(state["trace_id"], state["query"], "invalid_output", len(state["top_chunks"]), len(state["context"]), len(state["answer"]), contradiction_score, int((time.time() - state["start_total"]) * 1000))
+        record_query_result(state["trace_id"], state["query"], "invalid_output", len(state["top_chunks"]), len(state["context"]), len(state["answer"]), contradiction_score, int((time.time() - start_total) * 1000))
         return {"final_output": {"query": state["query"], "answer": "Invalid LLM output.", "sources": [], "images": []}}
     total_latency_ms = int((time.time() - state["start_total"]) * 1000)
     record_query_result(state["trace_id"], state["query"], "success", len(state["top_chunks"]), len(state["context"]), len(state["answer"]), contradiction_score, total_latency_ms)
@@ -436,10 +481,15 @@ def validation_node(state: AgentState):
     return {"final_output": {"query": state["query"], "answer": state["answer"], "web_findings": state.get("web_findings"), "sources": sources, "images": state.get("images", [])}}
 
 workflow = StateGraph(AgentState)
+workflow.add_node("router", intent_router_node)
+workflow.add_node("general_reply", general_reply_node)
 workflow.add_node("retrieve", retrieve_node)
 workflow.add_node("generate", generation_node)
 workflow.add_node("validate", validation_node)
-workflow.set_entry_point("retrieve")
+
+workflow.set_entry_point("router")
+workflow.add_conditional_edges("router", lambda x: x, {"knowledge": "retrieve", "general": "general_reply"})
+workflow.add_edge("general_reply", END)
 workflow.add_edge("retrieve", "generate")
 workflow.add_edge("generate", "validate")
 workflow.add_edge("validate", END)
