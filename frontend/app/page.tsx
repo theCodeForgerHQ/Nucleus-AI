@@ -130,6 +130,9 @@ export default function Home() {
       .find((b) => b.response && b.response.images.length > 0)?.response
       ?.images ?? [];
 
+  // No split until user has sent at least one message; then smooth transition to 75/25
+  const hasConversation = blocks.length > 0;
+
   return (
     <div className="flex flex-col h-screen">
       {/* Top bar - Warp style minimal */}
@@ -139,15 +142,17 @@ export default function Home() {
         </span>
       </header>
 
-      {/* 75% content | 25% images */}
+      {/* Full width initially; smooth transition to 75% chat | 25% images after first query */}
       <div className="flex-1 flex min-h-0">
-        {/* Left 75%: scrollable chat */}
+        {/* Main content: 100% when empty, 75% after first message — transition for smoothness */}
         <div
           ref={scrollRef}
-          className="w-[75%] min-w-0 flex flex-col overflow-y-auto overflow-x-hidden px-4 py-4 border-r border-warp-border"
+          className={`min-w-0 flex flex-col overflow-y-auto overflow-x-hidden px-4 py-4 transition-[width] duration-300 ease-out ${
+            hasConversation ? "w-[75%] border-r border-warp-border" : "w-full"
+          }`}
         >
           {blocks.length === 0 && (
-            <div className="text-warp-muted text-sm py-8">
+            <div className="text-warp-muted text-sm py-8 max-w-xl mx-auto text-center">
               <p>Ask a question. Answers are based on your knowledge base.</p>
               <p className="mt-2 text-warp-accent">
                 Type below and press Enter to query.
@@ -170,9 +175,14 @@ export default function Home() {
           )}
         </div>
 
-        {/* Right 25%: vertical scroll of images */}
-        <aside className="w-[25%] min-w-0 flex flex-col bg-warp-surface/50">
-          <div className="shrink-0 px-2 py-2 border-b border-warp-border text-warp-muted text-xs font-medium">
+        {/* Sidebar: 0 width when no conversation, 25% with smooth slide-in after first message */}
+        <aside
+          className={`min-w-0 flex flex-col bg-warp-surface/50 overflow-hidden transition-[width] duration-300 ease-out ${
+            hasConversation ? "w-[25%]" : "w-0"
+          }`}
+          aria-hidden={!hasConversation}
+        >
+          <div className="shrink-0 px-2 py-2 border-b border-warp-border text-warp-muted text-xs font-medium whitespace-nowrap">
             Images
           </div>
           <ImagesPanel images={sidebarImages} />
