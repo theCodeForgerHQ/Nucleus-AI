@@ -2,7 +2,7 @@
 
 import { useRef, useEffect } from "react";
 
-const PROMPT_PREFIX = "you@nucleus ~ % ";
+const PROMPT_PREFIX = "you@nucleus ~ %";
 
 type TerminalInputProps = {
   value: string;
@@ -38,6 +38,7 @@ export function TerminalInput({
     <div className="flex items-center gap-0 w-full border-t border-warp-border bg-warp-bg py-3 px-4">
       <span className="text-warp-green shrink-0 select-none">
         {PROMPT_PREFIX}
+        {" "}
       </span>
       <input
         ref={inputRef}
