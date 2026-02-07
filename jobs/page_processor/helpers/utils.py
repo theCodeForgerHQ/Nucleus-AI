@@ -8,7 +8,6 @@ from requests.auth import HTTPBasicAuth
 from common.analytics import record_stage_execution
 from common.utils import get_env
 
-
 def safe_record_stage(trace_id, stage_name, status, start):
     try:
         record_stage_execution(
@@ -19,12 +18,10 @@ def safe_record_stage(trace_id, stage_name, status, start):
             latency_ms=int((time.time() - start) * 1000),
         )
     except Exception:
-        return
-
+        return None
 
 def sha256(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
 
 def fetch_confluence_page(page_id, trace_id):
     start = time.time()
@@ -64,7 +61,6 @@ def fetch_confluence_page(page_id, trace_id):
         safe_record_stage(trace_id, "confluence_page_fetch", "failed", start)
         return None
 
-
 def upsert_neon_images(conn, page_id, images, trace_id):
     start = time.time()
 
@@ -101,7 +97,6 @@ def upsert_neon_images(conn, page_id, images, trace_id):
     except Exception:
         safe_record_stage(trace_id, "neon_images", "failed", start)
         return False
-
 
 def upsert_neon_chunks(conn, page_id, chunks, section_paths, trace_id):
     start = time.time()
@@ -140,7 +135,6 @@ def upsert_neon_chunks(conn, page_id, chunks, section_paths, trace_id):
         safe_record_stage(trace_id, "neon_chunks", "failed", start)
         return False
 
-
 def upsert_pinecone_chunks(pc, chunks, trace_id):
     start = time.time()
 
@@ -171,7 +165,6 @@ def upsert_pinecone_chunks(pc, chunks, trace_id):
         safe_record_stage(trace_id, "pinecone_chunks", "failed", start)
         return False
 
-
 def upsert_pinecone_images(pc, images, trace_id):
     start = time.time()
 
@@ -201,7 +194,6 @@ def upsert_pinecone_images(pc, images, trace_id):
     except Exception:
         safe_record_stage(trace_id, "pinecone_images", "failed", start)
         return False
-
 
 def mark_page_unstashed(conn, page_id):
     if not conn:

@@ -17,11 +17,10 @@ from jobs.page_processor.helpers.utils import (
     upsert_pinecone_chunks,
     upsert_pinecone_images,
     mark_page_unstashed,
-    safe_record_stage,
 )
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
-
+from common.utils import get_pinecone_client, get_db_conn
 
 HF_EMBED_BATCH_SIZE = 32
 RETRIES = 3
@@ -29,7 +28,8 @@ RETRY_SLEEP = 1.0
 
 class HFEmbedding(BaseEmbedding):
     def _get_text_embedding(self, text):
-        return self._get_text_embeddings([text])[0]
+        out = self._get_text_embeddings([text])
+        return out[0] if out else None
 
     def _get_text_embeddings(self, texts):
         out = []
@@ -46,29 +46,27 @@ class HFEmbedding(BaseEmbedding):
     async def _aget_query_embedding(self, query):
         return self._get_text_embedding(query)
 
-def process_page(page_id):
+def process_page(page_id, conn, pc):
     trace_id = str(uuid.uuid4())
     start = time.time()
     try:
         html = fetch_confluence_page(page_id, trace_id)
 
-        s = time.time()
         try:
             images = extract_images(html) or []
             tables = extract_tables(html) or []
             table_chunks = []
             table_section_paths = []
+
             for t in tables:
                 for fact in t["facts"]:
                     if fact and fact.strip():
                         table_chunks.append(fact.strip())
                         table_section_paths.append(" > ".join(t["section_path"]) if t["section_path"] else "")
-            safe_record_stage(trace_id, "extract", "success", s)
+
         except Exception:
-            safe_record_stage(trace_id, "extract", "failed", s)
             return False
 
-        s = time.time()
         try:
             markdown = html_to_markdown(html) or ""
             doc = Document(text=markdown)
@@ -120,35 +118,15 @@ def process_page(page_id):
                         current = heading
                 section_paths.append(" > ".join(section_path))
 
-            safe_record_stage(trace_id, "chunking", "success", s)
         except Exception:
-            safe_record_stage(trace_id, "chunking", "failed", s)
             return False
 
-        try:
-            upsert_neon_images(page_id, images, trace_id)
-        except Exception:
-            pass
-        try:
-            upsert_neon_chunks(page_id, text_chunks, section_paths, trace_id)
-        except Exception:
-            pass
-        try:
-            upsert_neon_chunks(page_id, table_chunks, table_section_paths, trace_id)
-        except Exception:
-            pass
-        try:
-            upsert_pinecone_chunks(text_chunks + table_chunks, trace_id)
-        except Exception:
-            pass
-        try:
-            upsert_pinecone_images(images, trace_id)
-        except Exception:
-            pass
-        try:
-            mark_page_unstashed(page_id)
-        except Exception:
-            pass
+        upsert_neon_images(conn, page_id, images, trace_id)
+        upsert_neon_chunks(conn, page_id, text_chunks, section_paths, trace_id)
+        upsert_neon_chunks(conn, page_id, table_chunks, table_section_paths, trace_id)
+        upsert_pinecone_chunks(pc, text_chunks + table_chunks, trace_id)
+        upsert_pinecone_images(pc, images, trace_id)
+        mark_page_unstashed(conn, page_id)
 
         lengths = [len(c) for c in text_chunks]
         avg_len = sum(lengths) // len(lengths) if lengths else 0
@@ -184,13 +162,18 @@ def process_page(page_id):
 
 def main():
     try:
+        pc = get_pinecone_client()
+        conn = get_db_conn()
         page_ids = fetch_page_ids()
     except Exception:
         return False
 
+    if not page_ids:
+        return True
+
     for page_id in page_ids:
         for _ in range(RETRIES):
-            if process_page(page_id):
+            if process_page(page_id, conn, pc):
                 break
             time.sleep(RETRY_SLEEP)
 
