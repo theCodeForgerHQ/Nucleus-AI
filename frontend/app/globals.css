@@ -43,6 +43,28 @@ body {
   animation: blink 1s step-end infinite;
 }
 
+/* Image skeleton shimmer */
+@keyframes image-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.image-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--warp-surface) 0%,
+    var(--warp-border) 45%,
+    var(--warp-border) 55%,
+    var(--warp-surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: image-shimmer 1.6s ease-in-out infinite;
+}
+
 /* Scrollbar - minimal Warp style */
 ::-webkit-scrollbar {
   width: 8px;

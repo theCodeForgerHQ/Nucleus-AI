@@ -195,7 +195,7 @@ export default function Home() {
           <div className="shrink-0 px-2 py-2 border-b border-warp-border text-warp-muted text-xs font-medium whitespace-nowrap">
             Images
           </div>
-          <ImagesPanel images={sidebarImages} />
+          <ImagesPanel images={sidebarImages} isLoading={loading} />
         </aside>
       </div>
 
