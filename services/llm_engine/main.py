@@ -2,7 +2,6 @@ import os
 import time
 import uuid
 from typing import List, Dict, Optional, TypedDict
-import logging
 import psycopg2
 import requests
 from concurrent.futures import ThreadPoolExecutor

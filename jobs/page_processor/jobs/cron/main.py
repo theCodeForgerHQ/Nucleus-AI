@@ -9,7 +9,6 @@ from common.analytics import (
 from jobs.page_processor.helpers.embedder.hf_embedder import embed
 from jobs.page_processor.helpers.extractors.image_extractor import extract_images
 from jobs.page_processor.helpers.extractors.text_processor import extract_tables, html_to_markdown
-from jobs.common.confluence_pages import fetch_page_ids
 from jobs.page_processor.helpers.utils import (
     fetch_confluence_page,
     upsert_neon_images,
@@ -45,6 +44,84 @@ class HFEmbedding(BaseEmbedding):
 
     async def _aget_query_embedding(self, query):
         return self._get_text_embedding(query)
+
+def fetch_stashed_pages(conn):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT page_id
+                FROM kb_pages
+                WHERE is_stashed = TRUE
+                """
+            )
+            return cur.fetchall()
+    except Exception:
+        return None
+
+def fetch_neon_chunk_hashes(conn, page_id):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT chunk_hash
+                FROM kb_chunks
+                WHERE page_id = %s AND is_active = TRUE
+                """,
+                (page_id,),
+            )
+            return [r[0] for r in cur.fetchall()]
+    except Exception:
+        return None
+
+def fetch_neon_image_hashes(conn, page_id):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT image_hash
+                FROM kb_images
+                WHERE page_id = %s AND is_active = TRUE
+                """,
+                (page_id,),
+            )
+            return [r[0] for r in cur.fetchall()]
+    except Exception:
+        return None
+
+def deactivate_neon_chunks(conn, page_id, chunk_hashes, trace_id):
+    if not chunk_hashes:
+        return True
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_chunks
+                SET is_active = FALSE, trace_id = %s
+                WHERE page_id = %s AND chunk_hash = ANY(%s)
+                """,
+                (trace_id, page_id, chunk_hashes),
+            )
+        return True
+    except Exception:
+        return False
+
+def deactivate_neon_images(conn, page_id, image_hashes, trace_id):
+    if not image_hashes:
+        return True
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_images
+                SET is_active = FALSE, trace_id = %s
+                WHERE page_id = %s AND image_hash = ANY(%s)
+                """,
+                (trace_id, page_id, image_hashes),
+            )
+        return True
+    except Exception:
+        return False
 
 def process_page(page_id, conn, pc):
     trace_id = str(uuid.uuid4())
@@ -200,7 +277,7 @@ def main():
     try:
         pc = get_pinecone_client()
         conn = get_db_conn()
-        page_ids = fetch_page_ids()
+        page_ids = fetch_stashed_pages(conn)
     except Exception:
         return False
 

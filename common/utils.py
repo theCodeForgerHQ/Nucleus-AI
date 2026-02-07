@@ -1,4 +1,4 @@
-import Pinecone
+from pinecone import Pinecone
 import os
 import psycopg2
 
