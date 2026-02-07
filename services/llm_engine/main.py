@@ -60,7 +60,7 @@ NLI_URL = os.environ["NLI_URL"]
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-NLI_CONTRADICTION_THRESHOLD = 0.7
+NLI_CONTRADICTION_THRESHOLD = 0.8
 
 KB_CHUNKS_INDEX = "kb-chunks"
 KB_PAGES_INDEX = "kb-pages"
