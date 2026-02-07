@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, TypedDict
 import logging
 import psycopg2
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from pinecone import Pinecone
@@ -50,6 +51,7 @@ NLI_URL = os.environ["NLI_URL"]
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 NLI_CONTRADICTION_THRESHOLD = 0.7
+IMAGE_SCORE_THRESHOLD = 0.5
 KB_CHUNKS_INDEX = "kb-chunks"
 KB_PAGES_INDEX = "kb-pages"
 KB_IMAGES_INDEX = "kb-images"
@@ -373,33 +375,50 @@ def retrieve_node(state: AgentState):
             "text": meta["text"], "fused_score": (W_CHUNK * chunk_score) + (W_PAGE * page_score),
         })
     if not fused:
-        return {"top_chunks": []}
+        return {"top_chunks": [], "context": ""}
     rerank_scores = call_reranker(state["trace_id"], state["query"], [f["text"] for f in fused])
     for item, score in zip(fused, rerank_scores):
         item["rerank_score"] = score
     fused.sort(key=lambda x: x["rerank_score"], reverse=True)
     top_chunks = fused[:FINAL_TOP_K]
-    final_images = []
-    top_chunk_page_ids = {c["page_id"] for c in top_chunks}
-    image_scores = search_with_text(state["trace_id"], images_index, state["query"], 20)
-    if image_scores:
-        fetched_images = fetch_images_from_neon(state["trace_id"], list(image_scores.keys()))
+    return {"top_chunks": top_chunks, "context": build_context(top_chunks)}
+
+def _get_images(trace_id, query, context):
+    try:
+        image_search_input = f"{query}\n\n{context}"
+        image_scores = search_with_text(trace_id, images_index, image_search_input, 20)
+        if not image_scores:
+            return []
+        
+        filtered_ids = [img_id for img_id, score in image_scores.items() if score >= IMAGE_SCORE_THRESHOLD]
+        if not filtered_ids:
+            return []
+
+        fetched_images = fetch_images_from_neon(trace_id, filtered_ids)
         ordered_images = sorted(fetched_images, key=lambda img: image_scores.get(img.get("image_hash"), 0), reverse=True)
-        for img in ordered_images:
-            if img.get("page_id") in top_chunk_page_ids:
-                final_images.append({"url": img.get("url"), "page_id": img.get("page_id"), "caption": img.get("caption")})
-    return {"top_chunks": top_chunks, "images": final_images[:TOP_K_IMAGES], "context": build_context(top_chunks)}
+        
+        return [{"url": img.get("url"), "page_id": img.get("page_id"), "caption": img.get("caption")} for img in ordered_images[:TOP_K_IMAGES]]
+    except Exception:
+        return []
 
 def generation_node(state: AgentState):
     if not state["top_chunks"]:
         record_query_result(state["trace_id"], state["query"], "no_context", 0, 0, 0, 0.0, int((time.time() - state["start_total"]) * 1000))
         web_findings = call_web_search_fallback(state["trace_id"], state["query"])
         return {"final_output": {"query": state["query"], "answer": "Not found in knowledge base.", "web_findings": web_findings, "sources": [], "images": []}}
-    answer = call_groq_llm(state["trace_id"], state["query"], state["context"], state["history"])
+
+    with ThreadPoolExecutor() as executor:
+        llm_future = executor.submit(call_groq_llm, state["trace_id"], state["query"], state["context"], state["history"])
+        image_future = executor.submit(_get_images, state["trace_id"], state["query"], state["context"])
+        
+        answer = llm_future.result()
+        images = image_future.result()
+
     web_findings = None
     if "Not found in knowledge base" in answer:
         web_findings = call_web_search_fallback(state["trace_id"], state["query"])
-    return {"answer": answer, "web_findings": web_findings}
+        
+    return {"answer": answer, "web_findings": web_findings, "images": images}
 
 def validation_node(state: AgentState):
     if state.get("final_output"): return state
