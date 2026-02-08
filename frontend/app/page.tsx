@@ -288,10 +288,10 @@ export default function Home() {
     return () => observer.disconnect();
   }, [blocks.length]);
 
-  // All images cumulative: newest query on top, each with blockIndex for scroll-into-view
-  // When a query has 0 images, nothing is added — previous images stay (order: q2, q2, q1, q1, q1)
+  // All images cumulative: oldest query at top (chronological), so scroll direction matches chat
+  // Scroll up in chat → scroll up in panel to older images; scroll down → newer images
   const sidebarImagesWithBlock: { url: string; page_id: string; caption: string | null; blockIndex: number }[] = [];
-  for (let i = blocks.length - 1; i >= 0; i--) {
+  for (let i = 0; i < blocks.length; i++) {
     const imgs = blocks[i].response?.images ?? [];
     for (const img of imgs) {
       sidebarImagesWithBlock.push({ ...img, blockIndex: i });
