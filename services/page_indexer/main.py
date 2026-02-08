@@ -103,17 +103,16 @@ def build_source_url(page_id):
 def insert_neon(conn, page_id, title, source_url, created_at, trace_id):
     start = time.time()
     try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO kb_pages
-                    (page_id, page_title, source_url, created_at, is_stashed)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (page_id) DO NOTHING
-                    """,
-                    (page_id, title, source_url, created_at, True),
-                )
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO kb_pages
+                (page_id, page_title, source_url, created_at, is_stashed)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (page_id) DO NOTHING
+                """,
+                (page_id, title, source_url, created_at, True),
+            )
         safe_record_stage(trace_id, "neon", "success", start)
         return True
     except Exception:
