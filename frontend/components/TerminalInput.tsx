@@ -119,7 +119,7 @@ export function TerminalInput({
   const atStart = cursorOffset === 0;
 
   return (
-    <div className="flex items-start gap-0 w-full min-h-[3.5rem] py-4 px-4">
+    <div className="flex items-start gap-0 w-full min-h-[3rem] sm:min-h-[3.5rem] py-3 px-3 sm:py-4 sm:px-4">
       <span className="text-warp-green shrink-0 select-none pt-2.5">
         {PROMPT_PREFIX}
       </span>

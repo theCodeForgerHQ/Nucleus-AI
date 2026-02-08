@@ -74,6 +74,7 @@ export default function Home() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const blockRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [activeBlockIndex, setActiveBlockIndex] = useState<number>(0);
+  const [imagesPanelOpen, setImagesPanelOpen] = useState(false);
   const ratioRef = useRef<number[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   /** Only allow saving after we've had blocks (from load or user); avoids saving [] on first paint before load runs */
@@ -302,34 +303,57 @@ export default function Home() {
   const hasConversation = blocks.length > 0;
 
   return (
-    <div className="flex flex-col h-screen">
-      {/* Top bar - Warp style minimal */}
-      <header className="shrink-0 h-9 flex items-center justify-between px-4 border-b border-warp-border bg-warp-surface">
-        <span className="text-warp-muted text-xs font-medium">
-          Nucleus AI — Google Knowledge Base
+    <div className="flex flex-col h-screen min-h-0">
+      {/* Top bar - Warp style minimal; on mobile: compact title + Images toggle when conversation */}
+      <header className="shrink-0 min-h-9 flex items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-warp-border bg-warp-surface">
+        <span className="text-warp-muted text-xs font-medium truncate min-w-0">
+          Nucleus AI
         </span>
-        <button
-          type="button"
-          onClick={handleNewChat}
-          disabled={loading}
-          className="text-warp-muted hover:text-warp-fg text-xs font-medium px-2 py-1 rounded border border-warp-border/60 hover:border-warp-border bg-transparent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Start a new chat (clears current conversation)"
-        >
-          New chat
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {hasConversation && (
+            <button
+              type="button"
+              onClick={() => setImagesPanelOpen((o) => !o)}
+              className="md:hidden text-warp-muted hover:text-warp-fg text-xs font-medium px-2 py-1.5 rounded border border-warp-border/60 hover:border-warp-border bg-transparent transition-colors"
+              title="Toggle images panel"
+              aria-label={imagesPanelOpen ? "Close images" : "Open images"}
+            >
+              Images {sidebarImagesWithBlock.length > 0 && `(${sidebarImagesWithBlock.length})`}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleNewChat}
+            disabled={loading}
+            className="text-warp-muted hover:text-warp-fg text-xs font-medium px-2 py-1 rounded border border-warp-border/60 hover:border-warp-border bg-transparent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Start a new chat (clears current conversation)"
+          >
+            New chat
+          </button>
+        </div>
       </header>
 
-      {/* Full width initially; smooth transition to 75% chat | 25% images after first query */}
-      <div className="flex-1 flex min-h-0">
-        {/* Main content: 100% when empty, 75% after first message — transition for smoothness */}
+      {/* Mobile: backdrop when images panel is open */}
+      {imagesPanelOpen && (
+        <button
+          type="button"
+          className="md:hidden fixed inset-0 z-20 bg-black/50 transition-opacity"
+          onClick={() => setImagesPanelOpen(false)}
+          aria-label="Close images panel"
+        />
+      )}
+
+      {/* Full width on mobile; 75% chat | 25% images on md+ when conversation */}
+      <div className="flex-1 flex min-h-0 relative">
+        {/* Main content: full width on mobile, 75% on md+ when has conversation */}
         <div
           ref={scrollRef}
-          className={`min-w-0 flex flex-col overflow-y-auto overflow-x-hidden px-4 py-4 transition-[width] duration-300 ease-out ${
-            hasConversation ? "w-[75%] border-r border-warp-border" : "w-full"
+          className={`min-w-0 flex flex-col overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 transition-[width] duration-300 ease-out w-full ${
+            hasConversation ? "md:w-[75%] md:border-r md:border-warp-border" : ""
           }`}
         >
           {blocks.length === 0 && (
-            <div className="text-warp-muted text-sm py-8 max-w-xl mx-auto text-center">
+            <div className="text-warp-muted text-sm py-6 sm:py-8 px-1 max-w-xl mx-auto text-center">
               <p>Ask a question. Answers are based on your knowledge base.</p>
               <p className="mt-2 text-warp-accent">
                 Type below and press Enter to query.
@@ -366,15 +390,29 @@ export default function Home() {
           )}
         </div>
 
-        {/* Sidebar: 0 width when no conversation, 25% with smooth slide-in after first message */}
+        {/* Images sidebar: on mobile = overlay when open; on md+ = inline 25% when has conversation */}
         <aside
-          className={`min-w-0 flex flex-col bg-warp-surface/50 overflow-hidden transition-[width] duration-300 ease-out ${
-            hasConversation ? "w-[25%]" : "w-0"
-          }`}
+          className={`flex flex-col bg-warp-surface overflow-hidden transition-[transform,width] duration-300 ease-out
+            fixed md:relative top-0 right-0 z-30 h-full border-l border-warp-border
+            ${!hasConversation ? "w-0 max-w-0 invisible pointer-events-none" : "w-[min(100%,320px)] md:w-[25%] md:min-w-0 md:max-w-none"}
+            ${!hasConversation ? "translate-x-full" : imagesPanelOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"}
+            shadow-xl md:shadow-none`}
           aria-hidden={!hasConversation}
         >
-          <div className="shrink-0 px-2 py-2 border-b border-warp-border text-warp-muted text-xs font-medium whitespace-nowrap">
-            Images
+          <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-warp-border">
+            <span className="text-warp-muted text-xs font-medium whitespace-nowrap">
+              Images
+            </span>
+            <button
+              type="button"
+              onClick={() => setImagesPanelOpen(false)}
+              className="md:hidden text-warp-muted hover:text-warp-fg p-1 rounded"
+              aria-label="Close images panel"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
           <ImagesPanel
             images={sidebarImagesWithBlock}
@@ -384,8 +422,8 @@ export default function Home() {
         </aside>
       </div>
 
-      {/* Fixed input bar: input + circular stop button at end when streaming */}
-      <div className="shrink-0 flex items-center border-t border-warp-border bg-warp-bg">
+      {/* Fixed input bar: compact on mobile */}
+      <div className="shrink-0 flex items-center gap-1 sm:gap-2 border-t border-warp-border bg-warp-bg px-2 sm:px-0">
         <div className="flex-1 min-w-0">
           <TerminalInput
             value={input}
@@ -396,7 +434,7 @@ export default function Home() {
             loading={loading}
           />
         </div>
-        {loading && (
+        {loading ? (
           <button
             type="button"
             onClick={handleStopGenerating}
@@ -406,6 +444,19 @@ export default function Home() {
           >
             <span className="w-2 h-2 rounded-sm shrink-0 bg-warp-red" />
             <span>^C</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!input.trim()}
+            className="shrink-0 flex items-center justify-center w-10 h-10 rounded-lg bg-warp-accent/15 text-warp-accent hover:bg-warp-accent/25 border border-warp-accent/30 hover:border-warp-accent/50 transition-colors disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-warp-accent/15 disabled:hover:border-warp-accent/30"
+            title="Send"
+            aria-label="Send message"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+            </svg>
           </button>
         )}
       </div>

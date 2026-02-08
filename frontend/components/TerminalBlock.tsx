@@ -82,7 +82,7 @@ export function TerminalBlock({
 
   return (
     <div
-      className={`terminal-block rounded-r pl-4 pr-4 py-3 my-1 transition-colors ${
+      className={`terminal-block rounded-r pl-3 pr-3 sm:pl-4 sm:pr-4 py-3 my-1 transition-colors ${
         isBlockClickable
           ? "cursor-pointer hover:bg-warp-surface/30"
           : ""

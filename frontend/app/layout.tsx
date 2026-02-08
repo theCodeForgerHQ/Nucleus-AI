@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -11,6 +11,12 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Nucleus AI",
   description: "Enterprise AI Knowledge Base",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({
