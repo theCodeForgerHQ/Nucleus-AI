@@ -10,6 +10,7 @@ import {
 import { TerminalBlock } from "@/components/TerminalBlock";
 import { TerminalInput, type TerminalInputHandle } from "@/components/TerminalInput";
 import { ImagesPanel } from "@/components/ImagesPanel";
+import { PixelLogo } from "@/components/PixelLogo";
 
 const STORAGE_KEY = "nucleus-ai-chat-blocks";
 
@@ -387,15 +388,15 @@ export default function Home() {
             ref={scrollRef}
             className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 bg-black"
           >
-            {blocks.length === 0 && (
-              <div className="text-warp-muted text-sm py-6 sm:py-8 px-1 max-w-xl mx-auto text-center">
-                <p>Ask a question. Answers are based on your knowledge base.</p>
-                <p className="mt-2 text-warp-accent">
-                  Type below and press Enter to query.
-                </p>
+            {blocks.length === 0 ? (
+              <div className="flex flex-col items-center justify-center min-h-[200px] text-center">
+                <PixelLogo />
               </div>
-            )}
-            {blocks.map((block, i) => (
+            ) : (
+              <>
+                <PixelLogo compact />
+                <div className="block-separator my-2" aria-hidden />
+                {blocks.map((block, i) => (
               <div key={block.id}>
                 <div
                   ref={(el) => {
@@ -418,6 +419,8 @@ export default function Home() {
                 )}
               </div>
             ))}
+              </>
+            )}
             {error && (
               <div className="text-warp-red text-sm py-2" role="alert">
                 {error}
