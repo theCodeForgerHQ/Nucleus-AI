@@ -3,10 +3,10 @@
 @tailwind utilities;
 
 :root {
-  /* Warp-style: dark black bg, white/light fonts */
-  --warp-bg: #0a0a0a;
-  --warp-surface: #141414;
-  --warp-border: #262626;
+  /* Warp-style: pure black bg, white/light fonts */
+  --warp-bg: #000000;
+  --warp-surface: #0a0a0a;
+  --warp-border: #1a1a1a;
   --warp-fg: #fafafa;
   --warp-muted: #a3a3a3;
   --warp-accent: #38bdf8;
@@ -35,7 +35,7 @@ body {
 /* Warp-style block border */
 .terminal-block {
   border-left: 2px solid var(--warp-border);
-  background: rgba(20, 20, 20, 0.5);
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .terminal-block:hover {

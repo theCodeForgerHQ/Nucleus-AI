@@ -83,7 +83,7 @@ function ImageCard({ img }: { img: ImageWithBlock }) {
       rel="noopener noreferrer"
       className="block rounded border border-warp-border overflow-hidden hover:border-warp-accent shrink-0 group"
     >
-      <div className="relative w-full bg-warp-surface min-h-[60px] flex items-center justify-center">
+      <div className="relative w-full bg-warp-bg min-h-[60px] flex items-center justify-center">
         {!loaded && (
           <div
             className="absolute inset-0 image-skeleton rounded-none"
@@ -100,7 +100,7 @@ function ImageCard({ img }: { img: ImageWithBlock }) {
         />
       </div>
       {img.caption && (
-        <div className="px-2 py-1.5 text-xs text-warp-muted truncate bg-warp-surface">
+        <div className="px-2 py-1.5 text-xs text-warp-muted truncate bg-warp-bg">
           {img.caption}
         </div>
       )}

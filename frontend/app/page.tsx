@@ -337,9 +337,9 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen min-h-0">
       {/* Top bar - Warp style minimal; on mobile: compact title + Images toggle when conversation */}
-      <header className="shrink-0 min-h-9 flex items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-warp-border bg-warp-surface">
+      <header className="shrink-0 min-h-9 flex items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-warp-border bg-black">
         <span className="text-warp-muted text-xs font-medium truncate min-w-0">
-          Nucleus AI
+          Nucleus AI - Google Knowledge Base
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
           {hasConversation && (
@@ -375,17 +375,17 @@ export default function Home() {
         />
       )}
 
-      {/* Left column: chat + input bar (shrinks when images panel open). Right: images panel. */}
-      <div className="flex-1 flex min-h-0 relative">
+      {/* Left column: chat + input bar (shrinks when images panel open). Right: images panel. Background = pure black. */}
+      <div className="flex-1 flex min-h-0 relative bg-black">
         {/* Chat column: scrollable area + input bar at bottom; full width on mobile, 75% on md+ when conversation */}
         <div
-          className={`min-w-0 flex-1 flex flex-col min-h-0 transition-[width] duration-300 ease-out w-full ${
+          className={`min-w-0 flex-1 flex flex-col min-h-0 transition-[width] duration-300 ease-out w-full bg-black ${
             hasConversation ? "md:w-[75%] md:border-r md:border-warp-border" : ""
           }`}
         >
           <div
             ref={scrollRef}
-            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4"
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 bg-black"
           >
             {blocks.length === 0 && (
               <div className="text-warp-muted text-sm py-6 sm:py-8 px-1 max-w-xl mx-auto text-center">
@@ -425,8 +425,8 @@ export default function Home() {
             )}
           </div>
 
-          {/* Input bar: inside chat column so it never goes under the images panel; button aligned to top (first line) */}
-          <div className="shrink-0 flex items-start gap-1 sm:gap-2 border-t border-warp-border bg-warp-bg pl-2 pr-4 sm:pl-0 sm:pr-4 min-h-0">
+          {/* Input bar: inside chat column; smooth rounded top corners; same black as rest of UI */}
+          <div className="shrink-0 flex items-start gap-1 sm:gap-2 border-t border-warp-border bg-black pl-2 pr-4 sm:pl-0 sm:pr-4 min-h-0 rounded-t-xl">
             <div className="flex-1 min-w-0">
               <TerminalInput
                 ref={inputRef}
@@ -485,7 +485,7 @@ export default function Home() {
 
         {/* Images sidebar: on mobile = overlay when open; on md+ = inline 25% when has conversation */}
         <aside
-          className={`flex flex-col bg-warp-surface overflow-hidden transition-[transform,width] duration-300 ease-out
+          className={`flex flex-col bg-black overflow-hidden transition-[transform,width] duration-300 ease-out
             fixed md:relative top-0 right-0 z-30 h-full border-l border-warp-border
             ${!hasConversation ? "w-0 max-w-0 invisible pointer-events-none" : "w-[min(100%,320px)] md:w-[25%] md:min-w-0 md:max-w-none"}
             ${!hasConversation ? "translate-x-full" : imagesPanelOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"}
