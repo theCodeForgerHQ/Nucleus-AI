@@ -1,5 +1,6 @@
 from common.utils import get_env, get_db_conn, get_pinecone_client
 import time
+from typing import List, Dict, Optional, TypedDict
 from langsmith import traceable
 from common.analytics import record_stage_execution
 from requests.adapters import HTTPAdapter
@@ -44,21 +45,16 @@ def safe_record_stage(trace_id, stage_name, status, start):
     except Exception:
         return False
 
-@traceable
-def search_with_text(trace_id, index, text, top_k):
-    start = time.time()
+def search_with_text(index, text, top_k):
     try:
         response = index.search(
             namespace="default",
             query={"inputs": {"text": text}, "top_k": top_k},
         )
         hits = response.get("result", {}).get("hits") or []
-
-        safe_record_stage(trace_id, "vector_search", "success", start)
         return {hit["_id"]: hit["_score"] for hit in hits}
 
     except Exception:
-        safe_record_stage(trace_id, "vector_search", "failure", start)
         return None
 
 @traceable
@@ -267,7 +263,7 @@ def call_web_search_fallback(trace_id, query):
         return "Web search information could not be retrieved at this time."
 
 @traceable
-def validate_answer_length(trace_id, answer: str) -> bool:
+def validate_answer_length(trace_id, answer):
     start = time.time()
     try:
         result = length_guard.validate(answer)
@@ -281,3 +277,159 @@ def validate_answer_length(trace_id, answer: str) -> bool:
     except Exception:
         safe_record_stage(trace_id, "answer_validation", "failure", start)
         return False
+
+@traceable
+def classify_intent(trace_id, query):
+    start = time.time()
+
+    try:
+        groq_model = get_env("GROQ_MODEL")
+        if groq_model is None:
+            safe_record_stage(trace_id, "classify_intent", "failure", start)
+            return None
+
+        prompt = f"""
+            Decide if the user query needs specific facts from the company's internal knowledge base or if it is a general interaction.
+
+            'knowledge': Questions about Alphabet and its funded companies. Questions relating to Google and its products or updates.
+            'general': Greetings, identity questions (who are you), small talk like hey, hi.
+
+            User Query: {query}
+
+            Respond with exactly one word: 'knowledge' or 'general'.
+        """
+
+        response = groq_client.chat.completions.create(
+            model=groq_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=5,
+        )
+
+        choices = response.choices
+        if not choices:
+            safe_record_stage(trace_id, "classify_intent", "failure", start)
+            return None
+
+        intent = choices[0].message.content.strip().lower()
+
+        if intent not in ("knowledge", "general"):
+            safe_record_stage(trace_id, "classify_intent", "failure", start)
+            return None
+
+        safe_record_stage(trace_id, "classify_intent", "success", start)
+        return intent
+
+    except Exception:
+        safe_record_stage(trace_id, "classify_intent", "failure", start)
+        return None
+
+@traceable
+def get_images(trace_id, images_index, query, context):
+    start = time.time()
+    IMAGE_SCORE_THRESHOLD = 0.15
+    TOP_K_IMAGES = 5
+    try:
+        image_search_input = f"{query}\n\n{context}"
+        image_scores = search_with_text(images_index, image_search_input, 20)
+        if not image_scores:
+            safe_record_stage(trace_id, "image_search", "failure", start)
+            return None
+
+        filtered_ids = [img_id for img_id, score in image_scores.items() if score >= IMAGE_SCORE_THRESHOLD]
+        if not filtered_ids:
+            safe_record_stage(trace_id, "image_search", "failure", start)
+            return None
+
+        fetched_images = fetch_images_from_neon(trace_id, filtered_ids)
+        if not fetched_images:
+            safe_record_stage(trace_id, "image_search", "failure", start)
+            return None
+
+        ordered_images = sorted(fetched_images, key=lambda img: image_scores.get(img.get("image_hash"), 0), reverse=True)
+
+        safe_record_stage(trace_id, "image_search", "success", start)
+        return [{"url": img.get("url"), "page_id": img.get("page_id"), "caption": img.get("caption")} for img in ordered_images[:TOP_K_IMAGES]]
+    except Exception:
+        safe_record_stage(trace_id, "image_search", "failure", start)
+        return None
+
+class FinalAnswer(TypedDict):
+    answer: str
+    sources: List[dict]
+    images: List[dict]
+    contradiction_score: float
+
+class AgentState(TypedDict):
+    query: str
+    history: List[Dict[str, str]]
+    trace_id: str
+    start_total: float
+
+    intent: Optional[str]
+
+    top_chunks: Optional[List[dict]]
+    web_findings: Optional[str]
+    sources: Optional[List[dict]]
+    images: Optional[List[dict]]
+
+    context: Optional[str]
+    answer: Optional[str]
+    contradiction_score: Optional[float]
+
+    final_output: Optional[FinalAnswer]
+
+def intent_router_node(state: AgentState):
+    intent = classify_intent(state["trace_id"], state["query"])
+    return {"intent": intent}
+
+@traceable
+def general_reply_node(state: AgentState):
+    start = time.time()
+    trace_id = state["trace_id"]
+    fallback = { "final_output": None }
+
+    try:
+        groq_model = get_env("GROQ_MODEL")
+        if groq_model is None:
+            safe_record_stage(trace_id, "general_reply", "failure", start)
+            return fallback
+        
+        response = groq_client.chat.completions.create(
+            model=groq_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful company internal knowledge assistant. "
+                        "Greet the user or respond to their general query politely. "
+                        "After your response, always include a proactive follow-up question "
+                        "inviting them to ask about Alphabet, Google products, or company updates."
+                    )
+                },
+                {"role": "user", "content": state["query"]}
+            ],
+            temperature=0.7,
+            max_tokens=400,
+        )
+
+        choices = response.choices
+        if not choices:
+            safe_record_stage(trace_id, "general_reply", "failure", start)
+            return fallback
+
+        answer = choices[0].message.content
+
+        safe_record_stage(trace_id, "general_reply", "success", start)
+        return {
+            "final_output": {
+                "answer": answer,
+                "sources": [],
+                "images": [],
+                "contradiction_score": 0.0,
+            }
+        }
+
+    except Exception:
+        safe_record_stage(trace_id, "general_reply", "failure", start)
+        return fallback
