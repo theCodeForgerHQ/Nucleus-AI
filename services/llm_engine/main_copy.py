@@ -57,12 +57,9 @@ def search_with_text(index, text, top_k):
     except Exception:
         return None
 
-@traceable
-def fetch_chunks_from_neon(trace_id, conn, chunk_hash):
-    start = time.time()
+def fetch_chunks_from_neon(conn, chunk_hash):
     try:
         if not chunk_hash:
-            safe_record_stage(trace_id, "fetch_chunks", "success", start)
             return {}
 
         placeholders = ",".join(["%s"] * len(chunk_hash))
@@ -78,22 +75,16 @@ def fetch_chunks_from_neon(trace_id, conn, chunk_hash):
             )
             rows = cur.fetchall()
         
-        safe_record_stage(trace_id, "fetch_chunks", "success", start)
-
         return {
             row[0]: {"text": row[1], "section": row[2], "page_id": row[3]}
             for row in rows
         }
     except Exception:
-        safe_record_stage(trace_id, "fetch_chunks", "failure", start)
         return None
 
-@traceable
-def fetch_images_from_neon(trace_id, conn, image_hash):
-    start = time.time()
+def fetch_images_from_neon(conn, image_hash):
     try:
         if not image_hash:
-            safe_record_stage(trace_id, "fetch_images", "success", start)
             return {}
 
         placeholders = ",".join(["%s"] * len(image_hash))
@@ -109,23 +100,17 @@ def fetch_images_from_neon(trace_id, conn, image_hash):
             )
             rows = cur.fetchall()
         
-        safe_record_stage(trace_id, "fetch_images", "success", start)
-
         return {
             row[0]: {"page_id": row[1], "url": row[2], "caption": row[3]}
             for row in rows
         }
     except Exception:
-        safe_record_stage(trace_id, "fetch_images", "failure", start)
         return None
 
-@traceable
-def call_reranker(trace_id, query, texts):
-    start = time.time()
+def call_reranker(query, texts):
     try:
         reranker_url = get_env("RERANKER_URL")
         if not reranker_url:
-            safe_record_stage(trace_id, "reranker", "failure", start)
             return None
 
         r = http_session.post(
@@ -135,11 +120,8 @@ def call_reranker(trace_id, query, texts):
         )
         r.raise_for_status()
 
-        safe_record_stage(trace_id, "reranker", "success", start)
-
         return r.json()["scores"]
     except Exception:
-        safe_record_stage(trace_id, "reranker", "failure", start)
         return None
 
 def build_context(chunks):
@@ -154,13 +136,10 @@ def build_context(chunks):
     except Exception:
         return None
 
-@traceable
-def call_groq_llm(trace_id, query, context, history=[]):
-    start = time.time()
+def call_groq_llm(query, context, history=[]):
     try:
         groq_model = get_env("GROQ_MODEL")
         if not groq_model or context is None:
-            safe_record_stage(trace_id, "llm_generate", "failure", start)
             return None
 
         messages = [
@@ -194,26 +173,19 @@ def call_groq_llm(trace_id, query, context, history=[]):
 
         choices = response.choices
         if not choices:
-            safe_record_stage(trace_id, "llm_generate", "failure", start)
             return None
 
         answer = choices[0].message.content
-
-        safe_record_stage(trace_id, "llm_generate", "success", start)
         return answer
 
     except Exception:
-        safe_record_stage(trace_id, "llm_generate", "failure", start)
         return None
 
-@traceable
-def call_nli(trace_id, premise, hypothesis):
-    start = time.time()
+def call_nli(premise, hypothesis):
     try:
         nli_url = get_env("NLI_URL")
 
         if not nli_url:
-            safe_record_stage(trace_id, "contradiction_check", "failure", start)
             return None
         
         r = http_session.post(
@@ -223,19 +195,14 @@ def call_nli(trace_id, premise, hypothesis):
         )
         r.raise_for_status()
 
-        safe_record_stage(trace_id, "contradiction_check", "success", start)
         return r.json()
     except Exception:
-        safe_record_stage(trace_id, "contradiction_check", "failure", start)
         return None
 
-@traceable
-def call_web_search_fallback(trace_id, query):
-    start = time.time()
+def call_web_search_fallback(query):
     try:
         groq_model = get_env("GROQ_MODEL")
         if not groq_model:
-            safe_record_stage(trace_id, "web_search", "failure", start)
             return "Web search information could not be retrieved at this time."
 
         search = DuckDuckGoSearchRun()
@@ -256,36 +223,21 @@ def call_web_search_fallback(trace_id, query):
         )
         summary = response.choices[0].message.content
 
-        safe_record_stage(trace_id, "web_search", "success", start)
         return summary
     except Exception:
-        safe_record_stage(trace_id, "web_search", "failure", start)
         return "Web search information could not be retrieved at this time."
 
-@traceable
-def validate_answer_length(trace_id, answer):
-    start = time.time()
+def validate_answer_length(answer):
     try:
         result = length_guard.validate(answer)
-        safe_record_stage(
-            trace_id,
-            "answer_validation",
-            "success" if result.validation_passed else "failure",
-            start,
-        )
         return result.validation_passed
     except Exception:
-        safe_record_stage(trace_id, "answer_validation", "failure", start)
         return False
 
-@traceable
-def classify_intent(trace_id, query):
-    start = time.time()
-
+def classify_intent(query):
     try:
         groq_model = get_env("GROQ_MODEL")
         if groq_model is None:
-            safe_record_stage(trace_id, "classify_intent", "failure", start)
             return None
 
         prompt = f"""
@@ -308,50 +260,38 @@ def classify_intent(trace_id, query):
 
         choices = response.choices
         if not choices:
-            safe_record_stage(trace_id, "classify_intent", "failure", start)
             return None
 
         intent = choices[0].message.content.strip().lower()
 
         if intent not in ("knowledge", "general"):
-            safe_record_stage(trace_id, "classify_intent", "failure", start)
             return None
 
-        safe_record_stage(trace_id, "classify_intent", "success", start)
         return intent
 
     except Exception:
-        safe_record_stage(trace_id, "classify_intent", "failure", start)
         return None
 
-@traceable
-def get_images(trace_id, images_index, query, context):
-    start = time.time()
+def get_images(images_index, query, context):
     IMAGE_SCORE_THRESHOLD = 0.15
     TOP_K_IMAGES = 5
     try:
         image_search_input = f"{query}\n\n{context}"
         image_scores = search_with_text(images_index, image_search_input, 20)
         if not image_scores:
-            safe_record_stage(trace_id, "image_search", "failure", start)
             return None
 
         filtered_ids = [img_id for img_id, score in image_scores.items() if score >= IMAGE_SCORE_THRESHOLD]
         if not filtered_ids:
-            safe_record_stage(trace_id, "image_search", "failure", start)
             return None
 
         fetched_images = fetch_images_from_neon(trace_id, filtered_ids)
         if not fetched_images:
-            safe_record_stage(trace_id, "image_search", "failure", start)
             return None
 
         ordered_images = sorted(fetched_images, key=lambda img: image_scores.get(img.get("image_hash"), 0), reverse=True)
-
-        safe_record_stage(trace_id, "image_search", "success", start)
         return [{"url": img.get("url"), "page_id": img.get("page_id"), "caption": img.get("caption")} for img in ordered_images[:TOP_K_IMAGES]]
     except Exception:
-        safe_record_stage(trace_id, "image_search", "failure", start)
         return None
 
 class FinalAnswer(TypedDict):
@@ -433,3 +373,37 @@ def general_reply_node(state: AgentState):
     except Exception:
         safe_record_stage(trace_id, "general_reply", "failure", start)
         return fallback
+
+def retrieve_node(state: AgentState):
+    KB_CHUNKS_INDEX = "kb-chunks"
+    KB_PAGES_INDEX = "kb-pages"
+    KB_IMAGES_INDEX = "kb-images"
+    TOP_K_CHUNKS = 50
+    TOP_K_PAGES = 20
+    FINAL_TOP_K = 8
+    W_CHUNK = 0.7
+    W_PAGE = 0.3
+    chunk_scores = search_with_text(state["trace_id"], chunks_index, state["query"], TOP_K_CHUNKS)
+    page_scores = search_with_text(state["trace_id"], pages_index, state["query"], TOP_K_PAGES)
+    chunk_metadata = fetch_chunks_from_neon(state["trace_id"], list(chunk_scores.keys()))
+    
+    fused = []
+    for chunk_id, chunk_score in chunk_scores.items():
+        if chunk_id not in chunk_metadata: continue
+        meta = chunk_metadata[chunk_id]
+        page_score = page_scores.get(str(meta["page_id"]), 0.0)
+        fused.append({
+            "chunk_id": chunk_id, "page_id": meta["page_id"], "section": meta["section"],
+            "text": meta["text"], "fused_score": (W_CHUNK * chunk_score) + (W_PAGE * page_score),
+        })
+    
+    if not fused:
+        return {"top_chunks": [], "context": ""}
+        
+    rerank_scores = call_reranker(state["trace_id"], state["query"], [f["text"] for f in fused])
+    for item, score in zip(fused, rerank_scores):
+        item["rerank_score"] = score
+    
+    fused.sort(key=lambda x: x["rerank_score"], reverse=True)
+    top_chunks = fused[:FINAL_TOP_K]
+    return {"top_chunks": top_chunks, "context": build_context(top_chunks)}
