@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { QueryResponse } from "@/lib/api";
 import type { StreamStagePayload } from "@/lib/api";
+import { MarkdownContent } from "@/components/MarkdownContent";
 
 const PROMPT_PREFIX = "you@nucleus ~ % ";
 
@@ -24,20 +25,6 @@ const STAGE_LABELS: Record<StreamStagePayload["stage"], string> = {
 };
 
 const INITIAL_SOURCES_VISIBLE = 4;
-
-/** Renders text with **bold** as actual bold (splits on ** and alternates) */
-function renderWithBold(text: string) {
-  const parts = text.split("**");
-  return parts.map((p, i) =>
-    i % 2 === 1 ? (
-      <strong key={i} className="font-semibold text-warp-fg">
-        {p}
-      </strong>
-    ) : (
-      p
-    )
-  );
-}
 
 type TerminalBlockProps = {
   blockIndex?: number;
@@ -124,8 +111,8 @@ export function TerminalBlock({
       {response === null && isStreaming && (
         <div className="mt-2 text-sm">
           {streamingAnswer ? (
-            <div className="text-warp-fg whitespace-pre-wrap break-words leading-relaxed">
-              {renderWithBold(streamingAnswer)}
+            <div className="text-warp-fg break-words leading-relaxed">
+              <MarkdownContent content={streamingAnswer} />
               <span className="cursor-blink">▌</span>
             </div>
           ) : (
@@ -140,14 +127,11 @@ export function TerminalBlock({
       {response && (
         <div className="mt-3 space-y-3 text-sm">
           <div className="flex flex-wrap items-start gap-2">
-            <div
-              className={`min-w-0 flex-1 ${
-                response.answer === "Not found in knowledge base."
-                  ? "text-warp-red whitespace-pre-wrap break-words leading-relaxed"
-                  : "text-warp-fg whitespace-pre-wrap break-words leading-relaxed"
-              }`}
-            >
-              {renderWithBold(response.answer)}
+            <div className="min-w-0 flex-1 break-words leading-relaxed">
+              <MarkdownContent
+                content={response.answer}
+                variant={response.answer === "Not found in knowledge base." ? "error" : "default"}
+              />
             </div>
           </div>
           {response.sources.length > 0 && (() => {
@@ -197,8 +181,8 @@ export function TerminalBlock({
                                 {s.section}
                               </span>
                             </div>
-                            <div className="px-5 py-4 text-warp-muted leading-relaxed whitespace-pre-wrap text-[13px]">
-                              {s.text}
+                            <div className="px-5 py-4 text-[13px]">
+                              <MarkdownContent content={s.text} variant="muted" />
                             </div>
                           </div>
                         )}
