@@ -1,5 +1,17 @@
 import requests
 from common.utils import get_db_conn, get_env
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+retry_strategy = Retry(
+    total=3,
+    status_forcelist=[429, 500, 502, 503, 504],
+    backoff_factor=1,
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+http_session = requests.Session()
+http_session.mount("https://", adapter)
+http_session.mount("http://", adapter)
 
 def fetch_failed_pages(conn):
     try:
@@ -47,15 +59,13 @@ def call_indexer(path, payload):
         if not base:
             return None
 
-        r = requests.post(
+        r = http_session.post(
             f"{base}{path}",
             json=payload,
             timeout=20,
         )
 
-        if r.status_code != 200:
-            return None
-
+        r.raise_for_status()
         return r.json()
     except Exception:
         return None
@@ -68,6 +78,8 @@ def main():
             return False
     
         rows = fetch_failed_pages(conn)
+        if rows is None:
+            return False
         if not rows:
             return True
 

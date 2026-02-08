@@ -22,7 +22,6 @@ from langgraph.graph import StateGraph, END
 from common.analytics import (
     record_stage_execution,
     record_query_result,
-    init_analytics_schema,
 )
 
 # Initialize Logging
@@ -44,8 +43,6 @@ groq_client = OpenAI(
     api_key=os.environ["GROQ_API_KEY"],
     base_url="https://api.groq.com/openai/v1",
 )
-
-init_analytics_schema()
 
 PROMPTLAYER_API_KEY = os.environ["PROMPTLAYER_API_KEY"]
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]

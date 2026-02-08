@@ -13,22 +13,6 @@ def _get_client():
         )
     return _client.conn
 
-def init_analytics_schema():
-    """
-    Kept for backward compatibility.
-    Schema is created by ClickHouse init scripts.
-    """
-    pass
-
-
-def get_conn():
-    """
-    Kept for backward compatibility.
-    Not meant for downstream usage.
-    """
-    return _get_client()
-
-
 def record_indexing_result(
     trace_id,
     page_id,

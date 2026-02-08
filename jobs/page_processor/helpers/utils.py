@@ -7,6 +7,18 @@ from requests.auth import HTTPBasicAuth
 
 from common.analytics import record_stage_execution
 from common.utils import get_env
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+retry_strategy = Retry(
+    total=3,
+    status_forcelist=[429, 500, 502, 503, 504],
+    backoff_factor=1,
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+http_session = requests.Session()
+http_session.mount("https://", adapter)
+http_session.mount("http://", adapter)
 
 def safe_record_stage(trace_id, stage_name, status, start):
     try:
@@ -22,7 +34,12 @@ def safe_record_stage(trace_id, stage_name, status, start):
         return False
 
 def sha256(text):
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    try:
+        if not text:
+            return None
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    except Exception:
+        return None
 
 def fetch_confluence_page(page_id, trace_id):
     start = time.time()
@@ -36,7 +53,7 @@ def fetch_confluence_page(page_id, trace_id):
         return None
 
     try:
-        r = requests.get(
+        r = http_session.get(
             f"{base_url}/rest/api/content/{page_id}",
             headers={"Accept": "application/json"},
             params={"expand": "body.storage"},
@@ -44,9 +61,7 @@ def fetch_confluence_page(page_id, trace_id):
             timeout=20,
         )
 
-        if r.status_code != 200:
-            safe_record_stage(trace_id, "confluence_page_fetch", "failed", start)
-            return None
+        r.raise_for_status()
 
         value = (
             r.json()

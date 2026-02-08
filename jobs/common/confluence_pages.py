@@ -1,6 +1,18 @@
 from common.utils import get_env
 import requests
 from requests.auth import HTTPBasicAuth
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+retry_strategy = Retry(
+    total=3,
+    status_forcelist=[429, 500, 502, 503, 504],
+    backoff_factor=1,
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+http_session = requests.Session()
+http_session.mount("https://", adapter)
+http_session.mount("http://", adapter)
 
 def fetch_page_ids():
     try:
@@ -31,15 +43,16 @@ def fetch_page_ids():
             if ancestor_id:
                 params["ancestors"] = ancestor_id
 
-            r = requests.get(
-                f"{base_url}/rest/api/content",
-                auth=auth,
-                headers=headers,
-                params=params,
-                timeout=15,
-            )
-
-            if r.status_code != 200:
+            try:
+                r = http_session.get(
+                    f"{base_url}/rest/api/content",
+                    auth=auth,
+                    headers=headers,
+                    params=params,
+                    timeout=15,
+                )
+                r.raise_for_status()
+            except Exception:
                 return page_ids if page_ids else None
 
             data = r.json()

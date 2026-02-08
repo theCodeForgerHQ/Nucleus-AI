@@ -7,11 +7,20 @@ from requests.auth import HTTPBasicAuth
 from common.analytics import (
     record_stage_execution,
     record_indexing_result,
-    init_analytics_schema
 )
 from common.utils import get_env, get_db_conn, get_pinecone_client
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-init_analytics_schema()
+retry_strategy = Retry(
+    total=3,
+    status_forcelist=[429, 500, 502, 503, 504],
+    backoff_factor=1,
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+http_session = requests.Session()
+http_session.mount("https://", adapter)
+http_session.mount("http://", adapter)
 
 app = FastAPI()
 
@@ -33,6 +42,14 @@ def init_state(conn, page_id):
 
 def update_state(conn, page_id, field, value):
     try:
+        ALLOWED_FIELDS = {
+            "confluence_status",
+            "neon_status",
+            "pinecone_status",
+        }
+
+        if field not in ALLOWED_FIELDS:
+            return False
         with conn, conn.cursor() as cur:
             cur.execute(
                 f"""
@@ -71,7 +88,7 @@ def fetch_confluence_page(page_id, trace_id):
         return None
     
     try:
-        r = requests.get(
+        r = http_session.get(
             f"{base_url}/rest/api/content/{page_id}",
             headers={"Accept": "application/json"},
             params={"expand": "body.storage"},
@@ -79,11 +96,9 @@ def fetch_confluence_page(page_id, trace_id):
             timeout=20,
         )
     
-        if r.status_code != 200:
-            safe_record_stage(trace_id, "confluence_page_fetch", "failed", start)
-            return None
-    
+        r.raise_for_status()
         safe_record_stage(trace_id, "confluence_page_fetch", "success", start)
+
         data = r.json()
         return (
             data["title"],
@@ -132,9 +147,7 @@ def upsert_pinecone(pc, page_id, title, trace_id):
         safe_record_stage(trace_id, "pinecone", "failed", start)
         return False
 
-def process_page(page_id):
-    conn = get_db_conn()
-    pc = get_pinecone_client()
+def process_page(conn, pc, page_id):
     trace_id = str(uuid.uuid4())
     start = time.time()
     init_state(conn, page_id)
@@ -169,12 +182,17 @@ def process_page(page_id):
 def health():
     return {"status": "ok"}
 
+@app.on_event("startup")
+def startup():
+    app.state.db = get_db_conn()
+    app.state.pc = get_pinecone_client()
+
 @app.post("/")
 async def page_created(req: Request, bg: BackgroundTasks):
     try:
         body = await req.json()
         page_id = body["page_id"]
-        bg.add_task(process_page, page_id)
+        bg.add_task(process_page, app.state.db, app.state.pc, page_id)
         return {"accepted": True, "page_id": page_id}
     except Exception:
         return {"accepted": False}
@@ -184,7 +202,7 @@ def retry_confluence(req: dict):
     trace_id = str(uuid.uuid4())
     conn = None
     try:
-        conn = get_db_conn()
+        conn = app.state.db
         if conn is None:
             return {"accepted": False, "reason": "db_unavailable"}
 
@@ -207,7 +225,7 @@ def retry_neon(req: dict):
     trace_id = str(uuid.uuid4())
     conn = None
     try:
-        conn = get_db_conn()
+        conn = app.state.db
         if conn is None:
             return {"accepted": False, "reason": "db_unavailable"}
 
@@ -229,11 +247,11 @@ def retry_pinecone(req: dict):
     trace_id = str(uuid.uuid4())
     conn = None
     try:
-        conn = get_db_conn()
+        conn = app.state.db
         if conn is None:
             return {"accepted": False, "reason": "db_unavailable"}
 
-        pc = get_pinecone_client()
+        pc = app.state.pc
         page_id = req["page_id"]
         title = req["title"]
 
@@ -251,7 +269,7 @@ async def page_created(request: Request, background_tasks: BackgroundTasks):
     try:
         payload = await request.json()
         page_id = payload["page"]["idAsString"]
-        background_tasks.add_task(process_page, page_id)
+        background_tasks.add_task(process_page, app.state.db, app.state.pc, page_id)
         return {"accepted": True, "page_id": page_id}
     except Exception:
         return {"accepted": False}
@@ -265,8 +283,8 @@ async def page_updated_webhook(request: Request, background_tasks: BackgroundTas
         page_id = payload["page"]["idAsString"]
         title = payload["page"]["title"]
 
-        conn = get_db_conn()
-        pc = get_pinecone_client()
+        conn = app.state.db
+        pc = app.state.pc
 
         background_tasks.add_task(page_updated, conn, trace_id, page_id)
         background_tasks.add_task(page_title_updated, conn, pc, trace_id, page_id, title)
@@ -282,7 +300,7 @@ async def page_deleted(request: Request, background_tasks: BackgroundTasks):
         payload = await request.json()
         page_id = payload["page"]["idAsString"]
 
-        conn = get_db_conn()
+        conn = app.state.db
         background_tasks.add_task(page_removed, conn, trace_id, page_id)
 
         return {"accepted": True, "page_id": page_id}
@@ -293,7 +311,7 @@ async def page_deleted(request: Request, background_tasks: BackgroundTasks):
 async def page_restored(request: Request, background_tasks: BackgroundTasks):
     trace_id = str(uuid.uuid4())
     try:
-        conn = get_db_conn()
+        conn = app.state.db
         payload = await request.json()
         page_id = payload["page"]["idAsString"]
 

@@ -131,30 +131,44 @@ def process_page(page_id, conn, pc):
             "pinecone_images": False,
         }
         
+        all_chunks = text_chunks + table_chunks
+        all_paths = section_paths + table_section_paths
+
         for _ in range(RETRIES):
             if not step_results["neon_images"]:
-                step_results["neon_images"] = upsert_neon_images(conn, page_id, images, trace_id)
-        
+                step_results["neon_images"] = upsert_neon_images(
+                    conn,
+                    page_id,
+                    images,
+                    trace_id,
+                )
+
             if not step_results["neon_chunks"]:
                 step_results["neon_chunks"] = upsert_neon_chunks(
-                    conn, page_id, text_chunks, section_paths, trace_id
-                ) and upsert_neon_chunks(
-                    conn, page_id, table_chunks, table_section_paths, trace_id
+                    conn,
+                    page_id,
+                    all_chunks,
+                    all_paths,
+                    trace_id,
                 )
-        
+
             if not step_results["pinecone_chunks"]:
                 step_results["pinecone_chunks"] = upsert_pinecone_chunks(
-                    pc, text_chunks + table_chunks, trace_id
+                    pc,
+                    all_chunks,
+                    trace_id,
                 )
-        
+
             if not step_results["pinecone_images"]:
                 step_results["pinecone_images"] = upsert_pinecone_images(
-                    pc, images, trace_id
+                    pc,
+                    images,
+                    trace_id,
                 )
-        
-            if step_results["neon_chunks"] and step_results["pinecone_chunks"] and step_results["neon_images"] and step_results["pinecone_images"]:
+
+            if all(step_results.values()):
                 break
-        
+
             time.sleep(RETRY_SLEEP)
         
         success = step_results["neon_chunks"] and step_results["pinecone_chunks"] and step_results["neon_images"] and step_results["pinecone_images"]

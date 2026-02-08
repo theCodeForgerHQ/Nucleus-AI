@@ -2,18 +2,28 @@ from common.utils import get_env
 import time
 import requests
 from jobs.common.confluence_pages import fetch_page_ids
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+retry_strategy = Retry(
+    total=3,
+    status_forcelist=[429, 500, 502, 503, 504],
+    backoff_factor=1,
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+http_session = requests.Session()
+http_session.mount("https://", adapter)
+http_session.mount("http://", adapter)
 
 def call_page_indexer_once(page_indexer_url, page_id):
     try:
-        r = requests.post(
+        r = http_session.post(
             page_indexer_url,
             json={"page_id": page_id},
             timeout=20,
         )
 
-        if r.status_code != 200:
-            return False
-
+        r.raise_for_status()
         return True
     except Exception:
         return False

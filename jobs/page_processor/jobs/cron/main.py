@@ -55,7 +55,7 @@ def fetch_stashed_pages(conn):
                 WHERE is_stashed = TRUE
                 """
             )
-            return cur.fetchall()
+            return [r[0] for r in cur.fetchall()]
     except Exception:
         return None
 
