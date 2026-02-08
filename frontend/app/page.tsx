@@ -8,7 +8,7 @@ import {
   type StreamStagePayload,
 } from "@/lib/api";
 import { TerminalBlock } from "@/components/TerminalBlock";
-import { TerminalInput } from "@/components/TerminalInput";
+import { TerminalInput, type TerminalInputHandle } from "@/components/TerminalInput";
 import { ImagesPanel } from "@/components/ImagesPanel";
 
 const STORAGE_KEY = "nucleus-ai-chat-blocks";
@@ -75,10 +75,40 @@ export default function Home() {
   const blockRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [activeBlockIndex, setActiveBlockIndex] = useState<number>(0);
   const [imagesPanelOpen, setImagesPanelOpen] = useState(false);
+  const [sendAnimating, setSendAnimating] = useState(false);
+  const [stopButtonEntering, setStopButtonEntering] = useState(false);
+  const [arrowEntering, setArrowEntering] = useState(false);
   const ratioRef = useRef<number[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<TerminalInputHandle | null>(null);
   /** Only allow saving after we've had blocks (from load or user); avoids saving [] on first paint before load runs */
   const allowSaveRef = useRef(false);
+
+  const ARROW_LAUNCH_MS = 550;
+  const SLIDE_ANIMATION_MS = 350;
+
+  // After arrow "launches" (moves up and disappears), clear sendAnimating so Stop button can slide up
+  useEffect(() => {
+    if (!sendAnimating) return;
+    const t = setTimeout(() => setSendAnimating(false), ARROW_LAUNCH_MS);
+    return () => clearTimeout(t);
+  }, [sendAnimating]);
+
+  // When we switch to showing Stop button (loading && !sendAnimating), animate it in from below
+  useEffect(() => {
+    if (!loading || sendAnimating) return;
+    setStopButtonEntering(true);
+    const t = setTimeout(() => setStopButtonEntering(false), 50);
+    return () => clearTimeout(t);
+  }, [loading, sendAnimating]);
+
+  // When loading ends, animate arrow back in from below
+  useEffect(() => {
+    if (loading) return;
+    setArrowEntering(true);
+    const t = setTimeout(() => setArrowEntering(false), 50);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   // Restore conversation from localStorage after mount (client-only)
   useEffect(() => {
@@ -97,6 +127,7 @@ export default function Home() {
     setError(null);
     setLoading(false);
     clearStorage();
+    setTimeout(() => inputRef.current?.focus(), 0);
   }, []);
 
   const buildHistory = useCallback((): HistoryMessage[] => {
@@ -114,6 +145,7 @@ export default function Home() {
     const q = input.trim();
     if (!q || loading) return;
 
+    setSendAnimating(true);
     setInput("");
     setError(null);
     const id = nextId();
@@ -343,51 +375,112 @@ export default function Home() {
         />
       )}
 
-      {/* Full width on mobile; 75% chat | 25% images on md+ when conversation */}
+      {/* Left column: chat + input bar (shrinks when images panel open). Right: images panel. */}
       <div className="flex-1 flex min-h-0 relative">
-        {/* Main content: full width on mobile, 75% on md+ when has conversation */}
+        {/* Chat column: scrollable area + input bar at bottom; full width on mobile, 75% on md+ when conversation */}
         <div
-          ref={scrollRef}
-          className={`min-w-0 flex flex-col overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 transition-[width] duration-300 ease-out w-full ${
+          className={`min-w-0 flex-1 flex flex-col min-h-0 transition-[width] duration-300 ease-out w-full ${
             hasConversation ? "md:w-[75%] md:border-r md:border-warp-border" : ""
           }`}
         >
-          {blocks.length === 0 && (
-            <div className="text-warp-muted text-sm py-6 sm:py-8 px-1 max-w-xl mx-auto text-center">
-              <p>Ask a question. Answers are based on your knowledge base.</p>
-              <p className="mt-2 text-warp-accent">
-                Type below and press Enter to query.
-              </p>
-            </div>
-          )}
-          {blocks.map((block, i) => (
-            <div key={block.id}>
-              <div
-                ref={(el) => {
-                  blockRefs.current[i] = el;
-                }}
-                data-block-index={i}
-              >
-                <TerminalBlock
-                  blockIndex={i}
-                  onScrollToImages={() => setActiveBlockIndex(i)}
-                  prompt={block.prompt}
-                  response={block.response}
-                  isStreaming={block.isStreaming}
-                  streamingAnswer={block.streamingAnswer}
-                  pipelineStage={block.pipelineStage}
-                />
+          <div
+            ref={scrollRef}
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4"
+          >
+            {blocks.length === 0 && (
+              <div className="text-warp-muted text-sm py-6 sm:py-8 px-1 max-w-xl mx-auto text-center">
+                <p>Ask a question. Answers are based on your knowledge base.</p>
+                <p className="mt-2 text-warp-accent">
+                  Type below and press Enter to query.
+                </p>
               </div>
-              {i < blocks.length - 1 && (
-                <div className="block-separator" aria-hidden />
-              )}
+            )}
+            {blocks.map((block, i) => (
+              <div key={block.id}>
+                <div
+                  ref={(el) => {
+                    blockRefs.current[i] = el;
+                  }}
+                  data-block-index={i}
+                >
+                  <TerminalBlock
+                    blockIndex={i}
+                    onScrollToImages={() => setActiveBlockIndex(i)}
+                    prompt={block.prompt}
+                    response={block.response}
+                    isStreaming={block.isStreaming}
+                    streamingAnswer={block.streamingAnswer}
+                    pipelineStage={block.pipelineStage}
+                  />
+                </div>
+                {i < blocks.length - 1 && (
+                  <div className="block-separator" aria-hidden />
+                )}
+              </div>
+            ))}
+            {error && (
+              <div className="text-warp-red text-sm py-2" role="alert">
+                {error}
+              </div>
+            )}
+          </div>
+
+          {/* Input bar: inside chat column so it never goes under the images panel; button aligned to top (first line) */}
+          <div className="shrink-0 flex items-start gap-1 sm:gap-2 border-t border-warp-border bg-warp-bg pl-2 pr-4 sm:pl-0 sm:pr-4 min-h-0">
+            <div className="flex-1 min-w-0">
+              <TerminalInput
+                ref={inputRef}
+                value={input}
+                onChange={setInput}
+                onSubmit={handleSubmit}
+                disabled={false}
+                placeholder="Ask anything..."
+                loading={loading}
+              />
             </div>
-          ))}
-          {error && (
-            <div className="text-warp-red text-sm py-2" role="alert">
-              {error}
-            </div>
-          )}
+            {/* Send button: show when idle or while arrow is still "launching"; then Stop slides up */}
+            {(!loading || sendAnimating) ? (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!input.trim() || loading}
+                className="shrink-0 flex items-center justify-center w-9 h-9 text-emerald-500 hover:text-emerald-400 transition-colors disabled:opacity-35 disabled:cursor-not-allowed mt-[22px] sm:mt-[26px] overflow-hidden"
+                title="Send"
+                aria-label="Send message"
+              >
+                <span
+                  className={`inline-flex ease-out ${
+                    sendAnimating
+                      ? "transition-all -translate-y-8 opacity-0"
+                      : arrowEntering
+                        ? "transition-all duration-[350ms] translate-y-6 opacity-0"
+                        : "transition-all duration-[350ms] translate-y-0 opacity-100"
+                  }`}
+                  aria-hidden
+                  style={sendAnimating ? { transitionDuration: `${ARROW_LAUNCH_MS}ms` } : undefined}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                    <path d="M12 19V5m0 0l-7 7m7-7l7 7" />
+                  </svg>
+                </span>
+              </button>
+            ) : (
+              <div className="shrink-0 flex items-center justify-center min-w-9 h-9 mt-[22px] sm:mt-[26px]">
+                <button
+                  type="button"
+                  onClick={handleStopGenerating}
+                  className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded border border-warp-border bg-warp-surface font-mono text-sm text-warp-red hover:bg-warp-surface/80 hover:border-warp-red/50 transition-all duration-[350ms] ease-out mr-3 ${
+                    stopButtonEntering ? "translate-y-6 opacity-0" : "translate-y-0 opacity-100"
+                  }`}
+                  title="Stop generating"
+                  aria-label="Stop generating"
+                >
+                  <span className="w-2 h-2 rounded-sm shrink-0 bg-warp-red" />
+                  <span>^C</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Images sidebar: on mobile = overlay when open; on md+ = inline 25% when has conversation */}
@@ -420,45 +513,6 @@ export default function Home() {
             isLoading={loading}
           />
         </aside>
-      </div>
-
-      {/* Fixed input bar: compact on mobile */}
-      <div className="shrink-0 flex items-center gap-1 sm:gap-2 border-t border-warp-border bg-warp-bg px-2 sm:px-0">
-        <div className="flex-1 min-w-0">
-          <TerminalInput
-            value={input}
-            onChange={setInput}
-            onSubmit={handleSubmit}
-            disabled={false}
-            placeholder="Ask anything..."
-            loading={loading}
-          />
-        </div>
-        {loading ? (
-          <button
-            type="button"
-            onClick={handleStopGenerating}
-            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded border border-warp-border bg-warp-surface font-mono text-sm text-warp-red hover:bg-warp-surface/80 hover:border-warp-red/50 transition-colors mr-3"
-            title="Stop generating"
-            aria-label="Stop generating"
-          >
-            <span className="w-2 h-2 rounded-sm shrink-0 bg-warp-red" />
-            <span>^C</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!input.trim()}
-            className="shrink-0 flex items-center justify-center w-10 h-10 rounded-lg bg-warp-accent/15 text-warp-accent hover:bg-warp-accent/25 border border-warp-accent/30 hover:border-warp-accent/50 transition-colors disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-warp-accent/15 disabled:hover:border-warp-accent/30"
-            title="Send"
-            aria-label="Send message"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
-            </svg>
-          </button>
-        )}
       </div>
     </div>
   );

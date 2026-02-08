@@ -1,10 +1,12 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback, useLayoutEffect } from "react";
+import { useRef, useEffect, useState, useCallback, useLayoutEffect, forwardRef, useImperativeHandle } from "react";
 
 const PROMPT_PREFIX = "you@nucleus ~ % ";
 const MIN_TEXTAREA_HEIGHT_PX = 40;
 const MAX_TEXTAREA_HEIGHT_PX = 200;
+
+export type TerminalInputHandle = { focus: () => void };
 
 type TerminalInputProps = {
   value: string;
@@ -15,19 +17,26 @@ type TerminalInputProps = {
   loading?: boolean;
 };
 
-export function TerminalInput({
-  value,
-  onChange,
-  onSubmit,
-  disabled = false,
-  placeholder = "",
-  loading = false,
-}: TerminalInputProps) {
+export const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>(function TerminalInput(
+  {
+    value,
+    onChange,
+    onSubmit,
+    disabled = false,
+    placeholder = "",
+    loading = false,
+  },
+  ref
+) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const cursorSpanRef = useRef<HTMLSpanElement>(null);
   const [cursorOffset, setCursorOffset] = useState(0);
   const [cursorPos, setCursorPos] = useState<{ left: number; top: number } | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => textareaRef.current?.focus(),
+  }), []);
 
   const updateCursorOffset = useCallback(() => {
     const el = textareaRef.current;
@@ -184,4 +193,4 @@ export function TerminalInput({
       </div>
     </div>
   );
-}
+});

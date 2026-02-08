@@ -19,8 +19,17 @@ html,
 body {
   height: 100%;
   margin: 0;
+  overflow: hidden;
   background: var(--warp-bg);
   color: var(--warp-fg);
+}
+
+/* Hide scrollbars but keep scroll behavior */
+html {
+  scrollbar-width: none;
+}
+body {
+  scrollbar-width: none;
 }
 
 /* Warp-style block border */
@@ -81,21 +90,12 @@ body {
   animation: image-shimmer 1.6s ease-in-out infinite;
 }
 
-/* Scrollbar - minimal Warp style */
+/* Hide scrollbars globally (scroll still works) */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 0;
+  height: 0;
+  display: none;
 }
-
-::-webkit-scrollbar-track {
-  background: var(--warp-bg);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--warp-border);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--warp-muted);
+* {
+  scrollbar-width: none;
 }
