@@ -15,7 +15,7 @@ from guardrails.hub import ValidLength
 from common.analytics import record_query_result
 from langgraph.graph import StateGraph, END
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 length_guard = Guard().use_many(
     ValidLength(min=20, max=4000)
@@ -327,6 +327,7 @@ def get_images(conn, images_index, query, context):
         return None
 
 class FinalAnswer(TypedDict):
+    query: str
     answer: str
     sources: List[dict]
     images: List[dict]
@@ -413,6 +414,7 @@ def general_reply_node(state: AgentState):
         safe_record_stage(trace_id, "general_reply", "success", start)
         return {
             "final_output": {
+                "query": state["query"],
                 "answer": answer,
                 "sources": [],
                 "images": [],
@@ -652,6 +654,7 @@ def validation_node(state: AgentState):
             safe_record_stage(trace_id, stage_name, "success", start)
             return {
                 "final_output": {
+                    "query": state["query"],
                     "answer": "LLM response contradicted the knowledge base.",
                     "sources": [],
                     "images": [],
@@ -673,6 +676,7 @@ def validation_node(state: AgentState):
             safe_record_stage(trace_id, stage_name, "success", start)
             return {
                 "final_output": {
+                    "query": state["query"],
                     "answer": "Invalid LLM output.",
                     "sources": [],
                     "images": [],
@@ -703,6 +707,7 @@ def validation_node(state: AgentState):
         safe_record_stage(trace_id, stage_name, "success", start)
         return {
             "final_output": {
+                "query": state["query"],
                 "answer": answer,
                 "sources": sources,
                 "images": state.get("images") or [],
@@ -742,7 +747,7 @@ app = FastAPI()
 
 class QueryRequest(BaseModel):
     query: str
-    history: List[Dict[str, str]] = []
+    history: List[Dict[str, str]] = Field(default_factory=list)
 
 @app.on_event("startup")
 def startup():
@@ -789,6 +794,7 @@ def run_query(req: QueryRequest):
     final_output = result.get("final_output")
     if final_output is None:
         return {
+            "query": req.query,
             "answer": "There was some issue processing your request. Please try again later.",
             "sources": [],
             "images": [],

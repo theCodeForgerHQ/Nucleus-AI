@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const LLM_ENGINE_URL =
-  process.env.NEXT_PUBLIC_LLM_ENGINE_URL || "http://localhost:8200";
+const LLM_ENGINE_URL = process.env.NEXT_PUBLIC_LLM_ENGINE_URL;
 
 export async function POST(request: NextRequest) {
   try {
