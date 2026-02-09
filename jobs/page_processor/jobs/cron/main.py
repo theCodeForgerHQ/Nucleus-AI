@@ -9,7 +9,6 @@ from common.analytics import (
 from jobs.page_processor.helpers.embedder.hf_embedder import embed
 from jobs.page_processor.helpers.extractors.image_extractor import extract_images
 from jobs.page_processor.helpers.extractors.text_processor import extract_tables, html_to_markdown
-from jobs.common.confluence_pages import fetch_page_ids
 from jobs.page_processor.helpers.utils import (
     fetch_confluence_page,
     upsert_neon_images,
@@ -21,7 +20,7 @@ from jobs.page_processor.helpers.utils import (
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 from common.utils import get_pinecone_client, get_db_conn
-
+from jobs.page_processor.helpers.utils import sha256
 HF_EMBED_BATCH_SIZE = 32
 RETRIES = 3
 RETRY_SLEEP = 1.0
@@ -45,6 +44,84 @@ class HFEmbedding(BaseEmbedding):
 
     async def _aget_query_embedding(self, query):
         return self._get_text_embedding(query)
+
+def fetch_stashed_pages(conn):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT page_id
+                FROM kb_pages
+                WHERE is_stashed = TRUE
+                """
+            )
+            return [r[0] for r in cur.fetchall()]
+    except Exception:
+        return None
+
+def fetch_neon_chunk_hashes(conn, page_id):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT chunk_hash
+                FROM kb_chunks
+                WHERE page_id = %s AND is_active = TRUE
+                """,
+                (page_id,),
+            )
+            return [r[0] for r in cur.fetchall()]
+    except Exception:
+        return []
+
+def fetch_neon_image_hashes(conn, page_id):
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT image_hash
+                FROM kb_images
+                WHERE page_id = %s AND is_active = TRUE
+                """,
+                (page_id,),
+            )
+            return [r[0] for r in cur.fetchall()]
+    except Exception:
+        return []
+
+def deactivate_neon_chunks(conn, page_id, chunk_hashes, trace_id):
+    if not chunk_hashes:
+        return True
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_chunks
+                SET is_active = FALSE, trace_id = %s
+                WHERE page_id = %s AND chunk_hash = ANY(%s)
+                """,
+                (trace_id, page_id, chunk_hashes),
+            )
+        return True
+    except Exception:
+        return False
+
+def deactivate_neon_images(conn, page_id, image_hashes, trace_id):
+    if not image_hashes:
+        return True
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_images
+                SET is_active = FALSE, trace_id = %s
+                WHERE page_id = %s AND image_hash = ANY(%s)
+                """,
+                (trace_id, page_id, image_hashes),
+            )
+        return True
+    except Exception:
+        return False
 
 def process_page(page_id, conn, pc):
     trace_id = str(uuid.uuid4())
@@ -124,45 +201,77 @@ def process_page(page_id, conn, pc):
         except Exception:
             return False
 
+        old_chunk_hashes = set(fetch_neon_chunk_hashes(conn, page_id))
+        old_image_hashes = set(fetch_neon_image_hashes(conn, page_id))
+
+        new_chunk_items = []
+        for c, p in zip(text_chunks, section_paths):
+            new_chunk_items.append((sha256(c), c, p))
+        for c, p in zip(table_chunks, table_section_paths):
+            new_chunk_items.append((sha256(c), c, p))
+
+        new_chunk_hashes = {h for h, _, _ in new_chunk_items}
+        new_image_items = [(sha256(i), i) for i in images]
+        new_image_hashes = {h for h, _ in new_image_items}
+
+        add_chunks = [(c, p) for h, c, p in new_chunk_items if h not in old_chunk_hashes]
+        add_images = [i for h, i in new_image_items if h not in old_image_hashes]
+
+        remove_chunk_hashes = list(old_chunk_hashes - new_chunk_hashes)
+        remove_image_hashes = list(old_image_hashes - new_image_hashes)
+
         step_results = {
             "neon_chunks": False,
             "pinecone_chunks": False,
             "neon_images": False,
             "pinecone_images": False,
         }
-        
-        all_chunks = text_chunks + table_chunks
-        all_paths = section_paths + table_section_paths
 
         for _ in range(RETRIES):
-            if not step_results["neon_images"]:
-                step_results["neon_images"] = upsert_neon_images(
-                    conn,
-                    page_id,
-                    images,
-                    trace_id,
-                )
-
             if not step_results["neon_chunks"]:
-                step_results["neon_chunks"] = upsert_neon_chunks(
-                    conn,
-                    page_id,
-                    all_chunks,
-                    all_paths,
-                    trace_id,
+                step_results["neon_chunks"] = (
+                    upsert_neon_chunks(
+                        conn,
+                        page_id,
+                        [c for c, _ in add_chunks],
+                        [p for _, p in add_chunks],
+                        trace_id,
+                    )
+                    and deactivate_neon_chunks(
+                        conn,
+                        page_id,
+                        remove_chunk_hashes,
+                        trace_id,
+                    )
                 )
 
             if not step_results["pinecone_chunks"]:
                 step_results["pinecone_chunks"] = upsert_pinecone_chunks(
                     pc,
-                    all_chunks,
+                    [c for c, _ in add_chunks],
                     trace_id,
+                )
+
+            if not step_results["neon_images"]:
+                step_results["neon_images"] = (
+                    upsert_neon_images(
+                        conn,
+                        page_id,
+                        add_images,
+                        trace_id,
+                    )
+                    and deactivate_neon_images(
+                        conn,
+                        page_id,
+                        remove_image_hashes,
+                        trace_id,
+                    )
                 )
 
             if not step_results["pinecone_images"]:
                 step_results["pinecone_images"] = upsert_pinecone_images(
                     pc,
-                    images,
+                    add_images,
                     trace_id,
                 )
 
@@ -214,7 +323,7 @@ def main():
     try:
         pc = get_pinecone_client()
         conn = get_db_conn()
-        page_ids = fetch_page_ids()
+        page_ids = fetch_stashed_pages(conn)
     except Exception:
         return False
 

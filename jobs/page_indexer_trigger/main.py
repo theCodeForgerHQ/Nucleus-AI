@@ -1,46 +1,51 @@
-import os
+from common.utils import get_env
 import time
 import requests
 from jobs.common.confluence_pages import fetch_page_ids
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-PAGE_INDEXER_URL = os.environ["PAGE_INDEXER_URL"]
-RETRIES = 3
-RETRY_SLEEP = 1.0
+retry_strategy = Retry(
+    total=3,
+    status_forcelist=[429, 500, 502, 503, 504],
+    backoff_factor=1,
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+http_session = requests.Session()
+http_session.mount("https://", adapter)
+http_session.mount("http://", adapter)
 
-def call_page_indexer(page_id):
-    last_err = None
+def call_page_indexer_once(page_indexer_url, page_id):
+    try:
+        r = http_session.post(
+            page_indexer_url,
+            json={"page_id": page_id},
+            timeout=20,
+        )
 
-    for _ in range(RETRIES):
-        try:
-            r = requests.post(
-                PAGE_INDEXER_URL,
-                json={"page_id": page_id},
-                timeout=10,
-            )
-
-            if r.status_code != 200:
-                raise RuntimeError(f"status_{r.status_code}")
-
-            return
-
-        except Exception as e:
-            last_err = str(e)
-            time.sleep(RETRY_SLEEP)
-
-    raise RuntimeError(last_err)
+        r.raise_for_status()
+        return True
+    except Exception:
+        return False
 
 def main():
-    page_ids = fetch_page_ids()
-    failures = 0
+    page_indexer_url = get_env("PAGE_INDEXER_URL")
+    if not page_indexer_url:
+        return False
 
-    for page_id in page_ids:
-        try:
-            call_page_indexer(page_id)
-        except Exception:
-            failures += 1
+    try:
+        page_ids = fetch_page_ids()
 
-    if failures:
-        raise SystemExit(1)
+        for page_id in page_ids:
+            for _ in range(3):
+                if call_page_indexer_once(page_indexer_url, page_id):
+                    break
+                time.sleep(1.0)
+
+        return True
+
+    except Exception:
+        return False
 
 if __name__ == "__main__":
     main()

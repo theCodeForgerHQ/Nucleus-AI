@@ -1,6 +1,8 @@
 fastapi
 uvicorn
 python-dotenv
+langchain-community
+duckduckgo-search
 requests
 psycopg2-binary
 pinecone
@@ -15,4 +17,4 @@ numpy
 scipy
 clickhouse_connect
 promptlayer
-
+ddgs>=5.0.0
