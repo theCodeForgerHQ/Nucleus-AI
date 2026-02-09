@@ -73,7 +73,7 @@ def fetch_chunks_from_neon(conn, chunk_hash):
         with conn, conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT chunk_hash, raw_chunk, section_path, page_id
+                SELECT chunk_hash, raw_chunk, section_path, page_id, is_active
                 FROM kb_chunks
                 WHERE chunk_hash IN ({placeholders})
                 """,
@@ -82,7 +82,7 @@ def fetch_chunks_from_neon(conn, chunk_hash):
             rows = cur.fetchall()
         
         return {
-            row[0]: {"text": row[1], "section": row[2], "page_id": row[3]}
+            row[0]: {"text": row[1], "section": row[2], "page_id": row[3], "is_active": row[4]}
             for row in rows
         }
     except Exception:
@@ -134,9 +134,19 @@ def build_context(chunks):
     try:
         if not chunks:
             return ""
-
         return "\n\n".join(
-            f"[Page ID: {c['page_id']}]\nSection: {c['section']}\n{c['text']}"
+            (
+                f"[Page ID: {c['page_id']}]\n"
+                f"This is an ACTIVE chunk. "
+                f"It belongs to the section '{c['section']}'. "
+                f"The content is:\n{c['text']}"
+                if c["is_active"]
+                else
+                f"[Page ID: {c['page_id']}]\n"
+                f"This is an INACTIVE chunk. "
+                f"It belongs to the section '{c['section']}'. "
+                f"The content is:\n{c['text']}"
+            )
             for c in chunks
         )
     except Exception:
@@ -418,7 +428,8 @@ def general_reply_node(state: AgentState):
 def retrieve_node(state: AgentState):
     start = time.time()
     trace_id = state["trace_id"]
-    stage_name = "retrieve"
+    stage_name = "retrieve" 
+    THRESHOLD = 0.6
 
     try:
         indexes = state["indexes"]
@@ -493,16 +504,22 @@ def retrieve_node(state: AgentState):
             )
 
         fused.sort(key=lambda x: x["final_score"], reverse=True)
-        top_chunks = fused[:FINAL_TOP_K]        
+        top_chunks = fused[:FINAL_TOP_K]
         
-        context = build_context(top_chunks)
+        filtered = [f for f in top_chunks if f["final_score"] >= THRESHOLD]
+
+        if not filtered:
+            safe_record_stage(trace_id, stage_name, "failure", start)
+            return {"top_chunks": None, "context": None}
+
+        context = build_context(filtered)
         if context is None:
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
         safe_record_stage(trace_id, stage_name, "success", start)
         return {
-            "top_chunks": top_chunks,
+            "top_chunks": filtered,
             "context": context,
         }
 
