@@ -59,7 +59,6 @@ export const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>
     return () => document.removeEventListener("click", onDocumentClick);
   }, []);
 
-  // Sync cursor position from textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -68,7 +67,6 @@ export const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>
     return () => el.removeEventListener("select", onSelect);
   }, []);
 
-  // Auto-grow height
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -81,7 +79,6 @@ export const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>
     el.style.overflowY = el.scrollHeight > MAX_TEXTAREA_HEIGHT_PX ? "auto" : "hidden";
   }, [value]);
 
-  // Measure caret position from mirror and account for textarea scroll
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
     const mirror = mirrorRef.current;
@@ -151,7 +148,6 @@ export const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>
           spellCheck={false}
           aria-label="Query input"
         />
-        {/* Hidden mirror to measure caret position (same font/size/padding/wrap as textarea) */}
         <div
           ref={mirrorRef}
           aria-hidden
@@ -163,7 +159,6 @@ export const TerminalInput = forwardRef<TerminalInputHandle, TerminalInputProps>
             _
           </span>
         </div>
-        {/* Blinking cursor overlay: block at start, underscore when typing */}
         {atStart ? (
           <span
             className="cursor-blink absolute inline-block w-1.5 bg-warp-accent"

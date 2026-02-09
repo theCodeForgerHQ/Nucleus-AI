@@ -11,9 +11,7 @@ export type ImageWithBlock = {
 
 type ImagesPanelProps = {
   images: ImageWithBlock[];
-  /** When this changes, panel smooth-scrolls to show the first image for this block */
   scrollToBlockIndex?: number | null;
-  /** When true and no images yet, show engaging skeleton placeholders instead of static text */
   isLoading?: boolean;
 };
 
@@ -33,7 +31,6 @@ export function ImagesPanel({
 }: ImagesPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // When scrollToBlockIndex changes, smooth-scroll so that block's first image is in view
   useEffect(() => {
     if (scrollToBlockIndex == null || !scrollRef.current) return;
     const first = scrollRef.current.querySelector(

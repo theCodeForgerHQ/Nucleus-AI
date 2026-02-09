@@ -757,9 +757,9 @@ def startup():
     indexes = None
     if pc is not None:
         indexes = {
-            "chunks": pc.Index("kb_chunks"),
-            "pages": pc.Index("kb_pages"),
-            "images": pc.Index("kb_images"),
+            "chunks": pc.Index("kb-chunks"),
+            "pages": pc.Index("kb-pages"),
+            "images": pc.Index("kb-images"),
         }
 
     app.state.indexes = indexes
