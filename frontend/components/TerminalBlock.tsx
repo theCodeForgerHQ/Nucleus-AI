@@ -39,7 +39,7 @@ export function TerminalBlock({
     if (!isLoading) return;
     const id = setInterval(() => {
       setStepIndex((i) => (i + 1) % FALLBACK_STEPS.length);
-    }, 1400);
+    }, 5000);
     return () => clearInterval(id);
   }, [isLoading]);
 

@@ -47,7 +47,7 @@ class HFEmbedding(BaseEmbedding):
 
 def fetch_stashed_pages(conn):
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT page_id
@@ -61,7 +61,7 @@ def fetch_stashed_pages(conn):
 
 def fetch_neon_chunk_hashes(conn, page_id):
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT chunk_hash
@@ -76,7 +76,7 @@ def fetch_neon_chunk_hashes(conn, page_id):
 
 def fetch_neon_image_hashes(conn, page_id):
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT image_hash
@@ -93,7 +93,7 @@ def deactivate_neon_chunks(conn, page_id, chunk_hashes, trace_id):
     if not chunk_hashes:
         return True
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE kb_chunks
@@ -110,7 +110,7 @@ def deactivate_neon_images(conn, page_id, image_hashes, trace_id):
     if not image_hashes:
         return True
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE kb_images
@@ -320,23 +320,31 @@ def process_page(page_id, conn, pc):
         return False
 
 def main():
+    pc = None
     try:
         pc = get_pinecone_client()
+        if not pc:
+            return False
+
         conn = get_db_conn()
-        page_ids = fetch_stashed_pages(conn)
+        try:
+            page_ids = fetch_stashed_pages(conn)
+        finally:
+            conn.close()
+
+        if not page_ids:
+            return True
+
+        for page_id in page_ids:
+            conn = get_db_conn()
+            try:
+                process_page(page_id, conn, pc)
+            finally:
+                conn.close()
+
+        return True
     except Exception:
         return False
-
-    if not pc or not conn:
-        return False
-
-    if not page_ids:
-        return True
-
-    for page_id in page_ids:
-        process_page(page_id, conn, pc)
-
-    return True
 
 if __name__ == "__main__":
     main()

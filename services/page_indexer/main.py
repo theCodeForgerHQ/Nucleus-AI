@@ -26,7 +26,7 @@ app = FastAPI()
 
 def init_state(conn, page_id):
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO kb_page_ingestion_state
@@ -50,7 +50,7 @@ def update_state(conn, page_id, field, value):
 
         if field not in ALLOWED_FIELDS:
             return False
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 f"""
                 UPDATE kb_page_ingestion_state
@@ -118,7 +118,7 @@ def build_source_url(page_id):
 def insert_neon(conn, page_id, title, source_url, created_at, trace_id):
     start = time.time()
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO kb_pages
@@ -147,12 +147,17 @@ def upsert_pinecone(pc, page_id, title, trace_id):
         safe_record_stage(trace_id, "pinecone", "failed", start)
         return False
 
-def process_page(conn, pc, page_id):
+def process_page(pc, page_id):
     trace_id = str(uuid.uuid4())
     start = time.time()
-    init_state(conn, page_id)
+
+    conn = get_db_conn()
+    if not conn:
+        return False
 
     try:
+        init_state(conn, page_id)
+
         title, created_at = fetch_confluence_page(page_id, trace_id)
         if not title or not created_at:
             return False
@@ -163,12 +168,12 @@ def process_page(conn, pc, page_id):
         record_indexing_result(
             trace_id=trace_id,
             page_id=page_id,
-            final_status="true",
+            final_status="success",
             total_latency_ms=int((time.time() - start) * 1000),
         )
 
         return True
-
+        
     except Exception:
         record_indexing_result(
             trace_id=trace_id,
@@ -178,13 +183,15 @@ def process_page(conn, pc, page_id):
         )
         return False
 
+    finally:
+        conn.close()
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 @app.on_event("startup")
 def startup():
-    app.state.db = get_db_conn()
     app.state.pc = get_pinecone_client()
 
 @app.post("/")
@@ -192,7 +199,7 @@ async def page_created(req: Request, bg: BackgroundTasks):
     try:
         body = await req.json()
         page_id = body["page_id"]
-        bg.add_task(process_page, app.state.db, app.state.pc, page_id)
+        bg.add_task(process_page, app.state.pc, page_id)
         return {"accepted": True, "page_id": page_id}
     except Exception:
         return {"accepted": False}
@@ -200,9 +207,8 @@ async def page_created(req: Request, bg: BackgroundTasks):
 @app.post("/retry/confluence")
 def retry_confluence(req: dict):
     trace_id = str(uuid.uuid4())
-    conn = None
     try:
-        conn = app.state.db
+        conn = get_db_conn()
         if conn is None:
             return {"accepted": False, "reason": "db_unavailable"}
 
@@ -219,13 +225,16 @@ def retry_confluence(req: dict):
         if conn is not None:
             update_state(conn, page_id, "confluence_status", "failure")
         return {"accepted": False}
+    
+    finally:
+        if conn:
+            conn.close()
         
 @app.post("/retry/neon")
 def retry_neon(req: dict):
     trace_id = str(uuid.uuid4())
-    conn = None
     try:
-        conn = app.state.db
+        conn = get_db_conn()
         if conn is None:
             return {"accepted": False, "reason": "db_unavailable"}
 
@@ -241,13 +250,16 @@ def retry_neon(req: dict):
         if conn is not None:
             update_state(conn, page_id, "neon_status", "failed")
         return {"accepted": False}
+    
+    finally:
+        if conn:
+            conn.close()
 
 @app.post("/retry/pinecone")
 def retry_pinecone(req: dict):
     trace_id = str(uuid.uuid4())
-    conn = None
     try:
-        conn = app.state.db
+        conn = get_db_conn()
         if conn is None:
             return {"accepted": False, "reason": "db_unavailable"}
 
@@ -264,12 +276,16 @@ def retry_pinecone(req: dict):
             update_state(conn, page_id, "pinecone_status", "failed")
         return {"accepted": False}
     
+    finally:
+        if conn:
+            conn.close()
+
 @app.post("/webhooks/page-created")
 async def page_created(request: Request, background_tasks: BackgroundTasks):
     try:
         payload = await request.json()
         page_id = payload["page"]["idAsString"]
-        background_tasks.add_task(process_page, app.state.db, app.state.pc, page_id)
+        background_tasks.add_task(process_page, app.state.pc, page_id)
         return {"accepted": True, "page_id": page_id}
     except Exception:
         return {"accepted": False}
@@ -282,12 +298,10 @@ async def page_updated_webhook(request: Request, background_tasks: BackgroundTas
         payload = await request.json()
         page_id = payload["page"]["idAsString"]
         title = payload["page"]["title"]
-
-        conn = app.state.db
         pc = app.state.pc
 
-        background_tasks.add_task(page_updated, conn, trace_id, page_id)
-        background_tasks.add_task(page_title_updated, conn, pc, trace_id, page_id, title)
+        background_tasks.add_task(page_updated, trace_id, page_id)
+        background_tasks.add_task(page_title_updated, pc, trace_id, page_id, title)
 
         return {"accepted": True, "page_id": page_id}
     except Exception:
@@ -300,8 +314,7 @@ async def page_deleted(request: Request, background_tasks: BackgroundTasks):
         payload = await request.json()
         page_id = payload["page"]["idAsString"]
 
-        conn = app.state.db
-        background_tasks.add_task(page_removed, conn, trace_id, page_id)
+        background_tasks.add_task(page_removed, trace_id, page_id)
 
         return {"accepted": True, "page_id": page_id}
     except Exception:
@@ -311,19 +324,29 @@ async def page_deleted(request: Request, background_tasks: BackgroundTasks):
 async def page_restored(request: Request, background_tasks: BackgroundTasks):
     trace_id = str(uuid.uuid4())
     try:
-        conn = app.state.db
         payload = await request.json()
         page_id = payload["page"]["idAsString"]
 
-        background_tasks.add_task(page_restored, conn, trace_id, page_id)
+        background_tasks.add_task(page_restored, trace_id, page_id)
         return {"accepted": True, "page_id": page_id}
     except Exception:
         return {"accepted": False}
 
-def page_updated(conn, trace_id, page_id):
+def page_updated(trace_id, page_id):
     start = time.time()
+    conn = get_db_conn()
+    if not conn:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_stashed",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return False
+
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE kb_pages
@@ -350,10 +373,24 @@ def page_updated(conn, trace_id, page_id):
         )
         return False
 
-def page_removed(conn, trace_id, page_id):
+    finally:
+        conn.close()
+
+def page_removed(trace_id, page_id):
     start = time.time()
+    conn = get_db_conn()
+    if not conn:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_deleted",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return False
+
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE kb_chunks
@@ -383,11 +420,24 @@ def page_removed(conn, trace_id, page_id):
             latency_ms=int((time.time() - start) * 1000),
         )
         return False
+    finally:
+        conn.close()
 
-def page_restored(conn, trace_id, page_id):
+def page_restored(trace_id, page_id):
     start = time.time()
+    conn = get_db_conn()
+    if not conn:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_restored",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return False
+
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE kb_chunks
@@ -417,11 +467,24 @@ def page_restored(conn, trace_id, page_id):
             latency_ms=int((time.time() - start) * 1000),
         )
         return False
+    finally:
+        conn.close()
 
-def page_title_updated(conn, pc, trace_id, page_id, new_title):
+def page_title_updated(pc, trace_id, page_id, new_title):
     start = time.time()
+    conn = get_db_conn()
+    if not conn:
+        record_stage_execution(
+            trace_id=trace_id,
+            pipeline="webhook",
+            stage_name="page_title_updated",
+            status="failed",
+            latency_ms=int((time.time() - start) * 1000),
+        )
+        return False
+    
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "SELECT page_title FROM kb_pages WHERE page_id = %s",
                 (page_id,),
@@ -450,7 +513,7 @@ def page_title_updated(conn, pc, trace_id, page_id, new_title):
             )
             return True
 
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "UPDATE kb_pages SET page_title = %s WHERE page_id = %s",
                 (new_title, page_id),
@@ -475,3 +538,5 @@ def page_title_updated(conn, pc, trace_id, page_id, new_title):
             latency_ms=int((time.time() - start) * 1000),
         )
         return False
+    finally:
+        conn.close()

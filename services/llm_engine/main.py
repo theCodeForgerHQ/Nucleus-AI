@@ -21,6 +21,9 @@ length_guard = Guard().use_many(
     ValidLength(min=20, max=4000)
 )
 
+def log(message: str):
+    print(f"[llm_engine] {message}")
+
 retry_strategy = Retry(
     total=3,
     status_forcelist=[429, 500, 502, 503, 504],
@@ -40,6 +43,7 @@ groq_client = OpenAI(
 
 def safe_record_stage(trace_id, stage_name, status, start):
     try:
+        log(f"safe_record_stage start trace_id={trace_id} stage={stage_name} status={status}")
         record_stage_execution(
             trace_id=trace_id,
             pipeline="query",
@@ -47,30 +51,37 @@ def safe_record_stage(trace_id, stage_name, status, start):
             status=status,
             latency_ms=int((time.time() - start) * 1000),
         )
+        log(f"safe_record_stage success trace_id={trace_id} stage={stage_name} status={status}")
         return True
-    except Exception:
+    except Exception as exc:
+        log(f"safe_record_stage failure trace_id={trace_id} stage={stage_name} status={status} error={exc}")
         return False
 
 def search_with_text(index, text, top_k):
     try:
+        log(f"search_with_text start top_k={top_k}")
         response = index.search(
             namespace="default",
             query={"inputs": {"text": text}, "top_k": top_k},
         )
         hits = response.get("result", {}).get("hits") or []
+        log(f"search_with_text hits={len(hits)}")
         return {hit["_id"]: hit["_score"] for hit in hits}
 
-    except Exception:
+    except Exception as exc:
+        log(f"search_with_text error={exc}")
         return None
 
 def fetch_chunks_from_neon(conn, chunk_hash):
     try:
         if not chunk_hash:
+            log("fetch_chunks_from_neon empty chunk_hash")
             return {}
 
         placeholders = ",".join(["%s"] * len(chunk_hash))
+        log(f"fetch_chunks_from_neon start n_hashes={len(chunk_hash)}")
 
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 f"""
                 SELECT chunk_hash, raw_chunk, section_path, page_id, is_active
@@ -80,22 +91,27 @@ def fetch_chunks_from_neon(conn, chunk_hash):
                 chunk_hash,
             )
             rows = cur.fetchall()
+
+        log(f"fetch_chunks_from_neon rows={len(rows)}")
         
         return {
             row[0]: {"text": row[1], "section": row[2], "page_id": row[3], "is_active": row[4]}
             for row in rows
         }
-    except Exception:
+    except Exception as exc:
+        log(f"fetch_chunks_from_neon error={exc}")
         return None
 
 def fetch_images_from_neon(conn, image_hash):
     try:
         if not image_hash:
+            log("fetch_images_from_neon empty image_hash")
             return {}
 
         placeholders = ",".join(["%s"] * len(image_hash))
+        log(f"fetch_images_from_neon start n_hashes={len(image_hash)}")
 
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 f"""
                 SELECT image_hash, page_id, image_src, caption
@@ -105,36 +121,45 @@ def fetch_images_from_neon(conn, image_hash):
                 image_hash,
             )
             rows = cur.fetchall()
+
+        log(f"fetch_images_from_neon rows={len(rows)}")
         
         return {
             row[0]: {"page_id": row[1], "url": row[2], "caption": row[3]}
             for row in rows
         }
-    except Exception:
+    except Exception as exc:
+        log(f"fetch_images_from_neon error={exc}")
         return None
 
 def call_reranker(query, texts):
     try:
         reranker_url = get_env("RERANKER_URL")
         if not reranker_url:
+            log("call_reranker missing RERANKER_URL")
             return None
 
+        log(f"call_reranker start n_texts={len(texts)}")
         r = http_session.post(
             reranker_url,
             json={"query": query, "texts": texts},
             timeout=120,
         )
         r.raise_for_status()
-
-        return r.json()["scores"]
-    except Exception:
+        scores = r.json()["scores"]
+        log(f"call_reranker scores={len(scores)}")
+        return scores
+    except Exception as exc:
+        log(f"call_reranker error={exc}")
         return None
 
 def build_context(chunks):
     try:
         if not chunks:
+            log("build_context empty chunks")
             return ""
-        return "\n\n".join(
+        log(f"build_context start n_chunks={len(chunks)}")
+        context = "\n\n".join(
             (
                 f"[Page ID: {c['page_id']}]\n"
                 f"This is an ACTIVE chunk. "
@@ -149,13 +174,17 @@ def build_context(chunks):
             )
             for c in chunks
         )
-    except Exception:
+        log(f"build_context size={len(context)}")
+        return context
+    except Exception as exc:
+        log(f"build_context error={exc}")
         return None
 
 def call_groq_llm(query, context, history=None):
     try:
         groq_model = get_env("GROQ_MODEL")
         if not groq_model or context is None:
+            log("call_groq_llm missing GROQ_MODEL or context")
             return None
 
         messages = [
@@ -173,6 +202,7 @@ def call_groq_llm(query, context, history=None):
         ]
 
         if history:
+            log(f"call_groq_llm history_len={len(history)}")
             messages.extend(history)
 
         messages.append({
@@ -189,12 +219,15 @@ def call_groq_llm(query, context, history=None):
 
         choices = response.choices
         if not choices:
+            log("call_groq_llm no choices")
             return None
 
         answer = choices[0].message.content
+        log(f"call_groq_llm answer_len={len(answer) if answer else 0}")
         return answer
 
-    except Exception:
+    except Exception as exc:
+        log(f"call_groq_llm error={exc}")
         return None
 
 def call_nli(premise, hypothesis):
@@ -202,27 +235,33 @@ def call_nli(premise, hypothesis):
         nli_url = get_env("NLI_URL")
 
         if not nli_url:
+            log("call_nli missing NLI_URL")
             return None
         
+        log("call_nli start")
         r = http_session.post(
             nli_url,
             json={"premise": premise, "hypothesis": hypothesis},
             timeout=60,
         )
         r.raise_for_status()
-
-        return r.json()
-    except Exception:
+        result = r.json()
+        log("call_nli success")
+        return result
+    except Exception as exc:
+        log(f"call_nli error={exc}")
         return None
 
 def call_web_search_fallback(query):
     try:
         groq_model = get_env("GROQ_MODEL")
         if not groq_model:
+            log("call_web_search_fallback missing GROQ_MODEL")
             return None
 
         search = DuckDuckGoSearchRun()
         web_results = search.run(query)
+        log("call_web_search_fallback web_results_ready")
         prompt = f"""
         The user asked: {query}
         The following information was found on the web:
@@ -238,22 +277,27 @@ def call_web_search_fallback(query):
             max_tokens=800,
         )
         summary = response.choices[0].message.content
-
+        log(f"call_web_search_fallback summary_len={len(summary) if summary else 0}")
         return summary
-    except Exception:
+    except Exception as exc:
+        log(f"call_web_search_fallback error={exc}")
         return None
 
 def validate_answer_length(answer):
     try:
+        log(f"validate_answer_length start len={len(answer) if answer else 0}")
         result = length_guard.validate(answer)
+        log(f"validate_answer_length passed={result.validation_passed}")
         return result.validation_passed
-    except Exception:
+    except Exception as exc:
+        log(f"validate_answer_length error={exc}")
         return False
 
 def classify_intent(query):
     try:
         groq_model = get_env("GROQ_MODEL")
         if groq_model is None:
+            log("classify_intent missing GROQ_MODEL")
             return None
 
         prompt = f"""
@@ -276,25 +320,34 @@ def classify_intent(query):
 
         choices = response.choices
         if not choices:
+            log("classify_intent no choices")
             return None
 
         intent = choices[0].message.content.strip().lower()
 
         if intent not in ("knowledge", "general"):
+            log(f"classify_intent invalid_intent={intent}")
             return None
 
+        log(f"classify_intent result={intent}")
         return intent
 
-    except Exception:
+    except Exception as exc:
+        log(f"classify_intent error={exc}")
         return None
 
-def get_images(conn, images_index, query, context):
+def get_images(images_index, query, context):
     IMAGE_SCORE_THRESHOLD = 0.15
     TOP_K_IMAGES = 5
+    conn = get_db_conn()
+    if not conn:
+        return None
     try:
+        log("get_images start")
         image_search_input = f"{query}\n\n{context}"
         image_scores = search_with_text(images_index, image_search_input, 20)
         if not image_scores:
+            log("get_images no image_scores")
             return None
 
         filtered_ids = [
@@ -302,10 +355,12 @@ def get_images(conn, images_index, query, context):
             if score >= IMAGE_SCORE_THRESHOLD
         ]
         if not filtered_ids:
+            log("get_images no filtered_ids")
             return None
 
         fetched_images = fetch_images_from_neon(conn, filtered_ids)
         if not fetched_images:
+            log("get_images no fetched_images")
             return None
 
         ordered_images = sorted(
@@ -314,7 +369,7 @@ def get_images(conn, images_index, query, context):
             reverse=True,
         )
 
-        return [
+        result = [
             {
                 "url": img["url"],
                 "page_id": img["page_id"],
@@ -322,9 +377,15 @@ def get_images(conn, images_index, query, context):
             }
             for _, img in ordered_images[:TOP_K_IMAGES]
         ]
+        log(f"get_images result_count={len(result)}")
+        return result
 
-    except Exception:
+    except Exception as exc:
+        log(f"get_images error={exc}")
         return None
+    
+    finally:
+        conn.close()
 
 class FinalAnswer(TypedDict):
     query: str
@@ -362,15 +423,19 @@ def intent_router_node(state: AgentState):
     stage_name = "intent_router"
 
     try:
+        log(f"intent_router_node start trace_id={trace_id}")
         intent = classify_intent(state["query"])
         if intent is None:
+            log("intent_router_node intent=None")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"intent": None}
 
+        log(f"intent_router_node intent={intent}")
         safe_record_stage(trace_id, stage_name, "success", start)
         return {"intent": intent}
 
-    except Exception:
+    except Exception as exc:
+        log(f"intent_router_node error={exc}")
         safe_record_stage(trace_id, stage_name, "failure", start)
         return {"intent": None}
 
@@ -381,8 +446,10 @@ def general_reply_node(state: AgentState):
     fallback = { "final_output": None }
 
     try:
+        log(f"general_reply_node start trace_id={trace_id}")
         groq_model = get_env("GROQ_MODEL")
         if groq_model is None:
+            log("general_reply_node missing GROQ_MODEL")
             safe_record_stage(trace_id, "general_reply", "failure", start)
             return fallback
         
@@ -406,10 +473,12 @@ def general_reply_node(state: AgentState):
 
         choices = response.choices
         if not choices:
+            log("general_reply_node no choices")
             safe_record_stage(trace_id, "general_reply", "failure", start)
             return fallback
 
         answer = choices[0].message.content
+        log(f"general_reply_node answer_len={len(answer) if answer else 0}")
 
         safe_record_stage(trace_id, "general_reply", "success", start)
         return {
@@ -422,7 +491,8 @@ def general_reply_node(state: AgentState):
             }
         }
 
-    except Exception:
+    except Exception as exc:
+        log(f"general_reply_node error={exc}")
         safe_record_stage(trace_id, "general_reply", "failure", start)
         return fallback
 
@@ -434,12 +504,15 @@ def retrieve_node(state: AgentState):
     THRESHOLD = 0.6
 
     try:
+        log(f"retrieve_node start trace_id={trace_id}")
         indexes = state["indexes"]
         if not indexes:
+            log("retrieve_node missing indexes")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
         if state["db_conn"] is None:
+            log("retrieve_node missing db_conn")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
@@ -456,6 +529,7 @@ def retrieve_node(state: AgentState):
             chunks_index, state["query"], TOP_K_CHUNKS
         )
         if not chunk_scores:
+            log("retrieve_node no chunk_scores")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
@@ -467,6 +541,7 @@ def retrieve_node(state: AgentState):
             state["db_conn"], list(chunk_scores.keys())
         )
         if not chunk_metadata:
+            log("retrieve_node no chunk_metadata")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
@@ -482,10 +557,12 @@ def retrieve_node(state: AgentState):
                 "page_id": meta["page_id"],
                 "section": meta["section"],
                 "text": meta["text"],
+                "is_active": meta["is_active"],
                 "fused_score": (W_CHUNK * chunk_score) + (W_PAGE * page_score),
             })
 
         if not fused:
+            log("retrieve_node fused empty")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
@@ -493,6 +570,7 @@ def retrieve_node(state: AgentState):
             state["query"], [f["text"] for f in fused]
         )
         if not rerank_scores:
+            log("retrieve_node no rerank_scores")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
@@ -511,21 +589,25 @@ def retrieve_node(state: AgentState):
         filtered = [f for f in top_chunks if f["final_score"] >= THRESHOLD]
 
         if not filtered:
+            log("retrieve_node filtered empty")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
         context = build_context(filtered)
         if context is None:
+            log("retrieve_node context is None")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
+        log(f"retrieve_node success n_chunks={len(filtered)}")
         safe_record_stage(trace_id, stage_name, "success", start)
         return {
             "top_chunks": filtered,
             "context": context,
         }
 
-    except Exception:
+    except Exception as exc:
+        log(f"retrieve_node error={exc}")
         safe_record_stage(trace_id, stage_name, "failure", start)
         return {"top_chunks": None, "context": None}
 
@@ -536,7 +618,9 @@ def generation_node(state: AgentState):
     stage_name = "generation"
 
     try:
+        log(f"generation_node start trace_id={trace_id}")
         if not state["top_chunks"]:
+            log("generation_node no top_chunks")
             safe_record_stage(trace_id, stage_name, "success", start)
             return {
                 "answer": None,
@@ -555,7 +639,6 @@ def generation_node(state: AgentState):
             )
             image_future = executor.submit(
                 get_images,
-                state["db_conn"],
                 state["indexes"]["images"],
                 state["query"],
                 state["context"],
@@ -563,8 +646,10 @@ def generation_node(state: AgentState):
 
             answer = llm_future.result()
             images = image_future.result()
+            log(f"generation_node got answer={answer is not None} images={len(images) if images else 0}")
 
         if answer is None:
+            log("generation_node answer None")
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {
                 "answer": None,
@@ -576,7 +661,9 @@ def generation_node(state: AgentState):
 
         web_findings = None
         if "not found in knowledge base" in answer.lower():
+            log("generation_node triggering web_search_fallback")
             web_findings = call_web_search_fallback(state["query"])
+            log(f"generation_node web_findings={web_findings is not None}")
 
         safe_record_stage(trace_id, stage_name, "success", start)
         return {
@@ -587,7 +674,8 @@ def generation_node(state: AgentState):
             "final_output": None,
         }
 
-    except Exception:
+    except Exception as exc:
+        log(f"generation_node error={exc}")
         safe_record_stage(trace_id, stage_name, "failure", start)
         return {
             "answer": None,
@@ -605,51 +693,56 @@ def validation_node(state: AgentState):
     NLI_CONTRADICTION_THRESHOLD = 0.7
 
     try:
+        log(f"validation_node start trace_id={trace_id}")
         answer = state.get("answer")
         context = state.get("context")
         top_chunks = state.get("top_chunks") or []
 
         if answer is None or context is None:
+            log("validation_node missing answer/context")
             record_query_result(
                 trace_id=trace_id,
                 query=state["query"],
-                status="no_answer",
-                n_chunks=len(top_chunks),
-                n_sources=0,
-                n_images=0,
+                final_status="no_answer",
+                top_k_chunks=len(top_chunks),
+                context_chars=len(context) if context else 0,
+                answer_chars=0,
                 contradiction_score=0.0,
-                latency_ms=int((time.time() - state["start_total"]) * 1000),
+                total_latency_ms=int((time.time() - state["start_total"]) * 1000),
             )
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"final_output": None}
 
         nli = call_nli(context, answer)
         if not nli:
+            log("validation_node nli failed")
             record_query_result(
                 trace_id=trace_id,
                 query=state["query"],
-                status="nli_failed",
-                n_chunks=len(top_chunks),
-                n_sources=0,
-                n_images=0,
+                final_status="nli_failed",
+                top_k_chunks=len(top_chunks),
+                context_chars=len(context) if context else 0,
+                answer_chars=0,
                 contradiction_score=0.0,
-                latency_ms=int((time.time() - state["start_total"]) * 1000),
+                total_latency_ms=int((time.time() - state["start_total"]) * 1000),
             )
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"final_output": None}
 
         contradiction_score = nli.get("contradiction", 0.0)
+        log(f"validation_node contradiction_score={contradiction_score}")
 
         if contradiction_score >= NLI_CONTRADICTION_THRESHOLD:
+            log("validation_node contradicted")
             record_query_result(
                 trace_id=trace_id,
                 query=state["query"],
-                status="contradicted",
-                n_chunks=len(top_chunks),
-                n_sources=0,
-                n_images=0,
-                contradiction_score=contradiction_score,
-                latency_ms=int((time.time() - state["start_total"]) * 1000),
+                final_status="contradicted",
+                top_k_chunks=len(top_chunks),
+                context_chars=len(context) if context else 0,
+                answer_chars=0,
+                contradiction_score=0.0,
+                total_latency_ms=int((time.time() - state["start_total"]) * 1000),
             )
             safe_record_stage(trace_id, stage_name, "success", start)
             return {
@@ -663,15 +756,16 @@ def validation_node(state: AgentState):
             }
 
         if not validate_answer_length(answer):
+            log("validation_node invalid output length")
             record_query_result(
                 trace_id=trace_id,
                 query=state["query"],
-                status="invalid_output",
-                n_chunks=len(top_chunks),
-                n_sources=0,
-                n_images=0,
-                contradiction_score=contradiction_score,
-                latency_ms=int((time.time() - state["start_total"]) * 1000),
+                final_status="no_answer",
+                top_k_chunks=len(top_chunks),
+                context_chars=len(context) if context else 0,
+                answer_chars=0,
+                contradiction_score=0.0,
+                total_latency_ms=int((time.time() - state["start_total"]) * 1000),
             )
             safe_record_stage(trace_id, stage_name, "success", start)
             return {
@@ -696,14 +790,15 @@ def validation_node(state: AgentState):
         record_query_result(
             trace_id=trace_id,
             query=state["query"],
-            status="success",
-            n_chunks=len(top_chunks),
-            n_sources=len(sources),
-            n_images=len(state.get("images") or []),
+            final_status="success",
+            top_k_chunks=len(top_chunks),
+            context_chars=len(context),
+            answer_chars=len(answer),
             contradiction_score=contradiction_score,
-            latency_ms=int((time.time() - state["start_total"]) * 1000),
+            total_latency_ms=int((time.time() - state["start_total"]) * 1000),
         )
 
+        log(f"validation_node success sources={len(sources)} images={len(state.get('images') or [])}")
         safe_record_stage(trace_id, stage_name, "success", start)
         return {
             "final_output": {
@@ -715,7 +810,8 @@ def validation_node(state: AgentState):
             }
         }
 
-    except Exception:
+    except Exception as exc:
+        log(f"validation_node error={exc}")
         safe_record_stage(trace_id, stage_name, "failure", start)
         return {"final_output": None}
 
@@ -751,19 +847,22 @@ class QueryRequest(BaseModel):
 
 @app.on_event("startup")
 def startup():
+    log("startup begin")
     pc = get_pinecone_client()
-    db_conn = get_db_conn()
-
     indexes = None
+
     if pc is not None:
+        log("startup pinecone client ready")
         indexes = {
             "chunks": pc.Index("kb-chunks"),
             "pages": pc.Index("kb-pages"),
             "images": pc.Index("kb-images"),
         }
+    else:
+        log("startup pinecone client missing")
 
     app.state.indexes = indexes
-    app.state.db_conn = db_conn
+    log("startup complete")
 
 @app.post("/query")
 @traceable(run_type="chain", name="RAG Query")
@@ -771,34 +870,53 @@ def run_query(req: QueryRequest):
     trace_id = str(uuid.uuid4())
     start_total = time.time()
 
-    inputs = {
-        "query": req.query,
-        "history": req.history,
-        "trace_id": trace_id,
-        "start_total": start_total,
-        "indexes": app.state.indexes,
-        "db_conn": app.state.db_conn,
-        "intent": None,
-        "top_chunks": None,
-        "context": None,
-        "answer": None,
-        "web_findings": None,
-        "images": None,
-        "sources": None,
-        "contradiction_score": None,
-        "final_output": None,
-    }
+    log(f"run_query start trace_id={trace_id} query_len={len(req.query) if req.query else 0}")
 
-    result = rag_app.invoke(inputs)
-
-    final_output = result.get("final_output")
-    if final_output is None:
+    conn = get_db_conn()
+    if not conn:
         return {
             "query": req.query,
-            "answer": "There was some issue processing your request. Please try again later.",
+            "answer": "Database unavailable. Please try again later.",
             "sources": [],
             "images": [],
             "contradiction_score": 0.0,
         }
 
-    return final_output
+    try:
+        inputs = {
+            "query": req.query,
+            "history": req.history,
+            "trace_id": trace_id,
+            "start_total": start_total,
+            "indexes": app.state.indexes,
+            "db_conn": conn,
+            "intent": None,
+            "top_chunks": None,
+            "context": None,
+            "answer": None,
+            "web_findings": None,
+            "images": None,
+            "sources": None,
+            "contradiction_score": None,
+            "final_output": None,
+        }
+
+        result = rag_app.invoke(inputs)
+        log(f"run_query rag_app.invoke done trace_id={trace_id}")
+
+        final_output = result.get("final_output")
+        if final_output is None:
+            log(f"run_query final_output None trace_id={trace_id}")
+            return {
+                "query": req.query,
+                "answer": "There was some issue processing your request. Please try again later.",
+                "sources": [],
+                "images": [],
+                "contradiction_score": 0.0,
+            }
+
+        log(f"run_query success trace_id={trace_id}")
+        return final_output
+
+    finally:
+        conn.close()

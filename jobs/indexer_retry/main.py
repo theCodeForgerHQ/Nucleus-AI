@@ -15,7 +15,7 @@ http_session.mount("http://", adapter)
 
 def fetch_failed_pages(conn):
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT page_id, neon_status, pinecone_status
@@ -35,7 +35,7 @@ def fetch_failed_pages(conn):
 
 def set_all_fatal(page_id, err, conn):
     try:
-        with conn, conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE kb_page_ingestion_state
@@ -119,7 +119,9 @@ def main():
         return True
     except Exception:
         return False
-
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == "__main__":
     main()
