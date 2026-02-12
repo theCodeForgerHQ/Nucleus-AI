@@ -453,20 +453,26 @@ def general_reply_node(state: AgentState):
             safe_record_stage(trace_id, "general_reply", "failure", start)
             return fallback
         
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful company internal knowledge assistant. "
+                    "Greet the user or respond to their general query politely. "
+                    "After your response, always include a proactive follow-up question "
+                    "inviting them to ask about Alphabet, Google products, or company updates."
+                )
+            }
+        ]
+
+        if state.get("history"):
+            messages.extend(state["history"])
+
+        messages.append({"role": "user", "content": state["query"]})
+
         response = groq_client.chat.completions.create(
             model=groq_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a helpful company internal knowledge assistant. "
-                        "Greet the user or respond to their general query politely. "
-                        "After your response, always include a proactive follow-up question "
-                        "inviting them to ask about Alphabet, Google products, or company updates."
-                    )
-                },
-                {"role": "user", "content": state["query"]}
-            ],
+            messages=messages,
             temperature=0.7,
             max_tokens=400,
         )
