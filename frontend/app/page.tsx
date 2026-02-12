@@ -71,6 +71,7 @@ export default function Home() {
   const [arrowEntering, setArrowEntering] = useState(false);
   const ratioRef = useRef<number[]>([]);
   const inputRef = useRef<TerminalInputHandle | null>(null);
+  const hasHydratedRef = useRef(false);
 
   const ARROW_LAUNCH_MS = 550;
 
@@ -79,6 +80,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!hasHydratedRef.current) {
+      hasHydratedRef.current = true;
+      return;
+    }
     saveBlocksToStorage(blocks);
   }, [blocks]);
 
@@ -256,10 +261,24 @@ export default function Home() {
         <div
           className={`flex-1 flex flex-col min-h-0 ${hasConversation ? "md:border-r md:border-warp-border md:w-[75%]" : ""}`}
         >
+          {!error && hasConversation && (
+            <div className="px-3 sm:px-4 pt-4">
+              <p className="text-warp-fg text-base sm:text-lg font-medium tracking-wide text-center">
+                Ask. Search. Know.
+              </p>
+            </div>
+          )}
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto px-3 sm:px-4 py-4"
           >
+            {!hasConversation && !error && (
+              <div className="h-full flex items-center justify-center">
+                <p className="text-warp-fg text-base sm:text-lg font-medium tracking-wide">
+                  Ask. Search. Know.
+                </p>
+              </div>
+            )}
             {blocks.map((block, i) => (
               <div key={block.id} data-block-index={i}>
                 <TerminalBlock
