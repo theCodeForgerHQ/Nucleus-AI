@@ -119,52 +119,80 @@ export default function Home() {
     return out;
   }, [blocks]);
 
+  const sendPrompt = useCallback(
+    async (q: string) => {
+      if (!q.trim() || loading) return;
+
+      setSendAnimating(true);
+      setInput("");
+      setError(null);
+
+      const id = nextId();
+      setBlocks((prev) => [
+        ...prev,
+        { id, prompt: q, response: null, isLoading: true },
+      ]);
+      setLoading(true);
+
+      try {
+        const history = buildHistory();
+        const res = await postQuery(q, history);
+        setBlocks((prev) =>
+          prev.map((b) =>
+            b.id === id ? { ...b, response: res, isLoading: false } : b,
+          ),
+        );
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Request failed";
+        setError(message);
+        setBlocks((prev) =>
+          prev.map((b) =>
+            b.id === id
+              ? {
+                  ...b,
+                  isLoading: false,
+                  response: {
+                    query: q,
+                    answer: `Error: ${message}`,
+                    sources: [],
+                    images: [],
+                  },
+                }
+              : b,
+          ),
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loading, buildHistory],
+  );
+
   const handleSubmit = useCallback(async () => {
     const q = input.trim();
     if (!q || loading) return;
 
-    setSendAnimating(true);
-    setInput("");
-    setError(null);
+    await sendPrompt(q);
+  }, [input, loading, sendPrompt]);
 
-    const id = nextId();
-    setBlocks((prev) => [
-      ...prev,
-      { id, prompt: q, response: null, isLoading: true },
-    ]);
-    setLoading(true);
+  const goldenQuestions = [
+    "What do we know about Nucleus AI?",
+    "Summarize the latest updates in our Google knowledge base.",
+    "Where can I find docs about Nucleus integrations?",
+    "Give me a quick overview of our architecture.",
+    "What are the key decisions from our recent design docs?",
+  ];
 
-    try {
-      const history = buildHistory();
-      const res = await postQuery(q, history);
-      setBlocks((prev) =>
-        prev.map((b) =>
-          b.id === id ? { ...b, response: res, isLoading: false } : b,
-        ),
-      );
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Request failed";
-      setError(message);
-      setBlocks((prev) =>
-        prev.map((b) =>
-          b.id === id
-            ? {
-                ...b,
-                isLoading: false,
-                response: {
-                  query: q,
-                  answer: `Error: ${message}`,
-                  sources: [],
-                  images: [],
-                },
-              }
-            : b,
-        ),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [input, loading, buildHistory]);
+  const handleGoldenEdit = (q: string) => {
+    setInput(q);
+  };
+
+  const handleGoldenSend = (q: string) => {
+    setInput(q);
+    sendPrompt(q);
+  };
+
+  const hasConversation = blocks.length > 0;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -226,8 +254,6 @@ export default function Home() {
     });
   });
 
-  const hasConversation = blocks.length > 0;
-
   return (
     <div className="flex flex-col h-screen min-h-0">
       <header className="shrink-0 min-h-9 flex items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-warp-border bg-black">
@@ -266,6 +292,29 @@ export default function Home() {
               <p className="text-warp-fg text-base sm:text-lg font-medium tracking-wide text-center">
                 Ask. Search. Know.
               </p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                {goldenQuestions.map((q) => (
+                  <div
+                    key={q}
+                    className="flex items-center gap-1 rounded-full border border-warp-border/70 px-3 py-1 bg-black/40"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleGoldenEdit(q)}
+                      className="text-xs sm:text-[13px] text-warp-muted hover:text-warp-fg"
+                    >
+                      {q}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleGoldenSend(q)}
+                      className="text-xs text-emerald-400 hover:text-emerald-300"
+                    >
+                      Send
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           <div
@@ -273,10 +322,33 @@ export default function Home() {
             className="flex-1 overflow-y-auto px-3 sm:px-4 py-4"
           >
             {!hasConversation && !error && (
-              <div className="h-full flex items-center justify-center">
-                <p className="text-warp-fg text-base sm:text-lg font-medium tracking-wide">
+              <div className="h-full flex flex-col items-center justify-center gap-4">
+                <p className="text-warp-fg text-base sm:text-lg font-medium tracking-wide text-center">
                   Ask. Search. Know.
                 </p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {goldenQuestions.map((q) => (
+                    <div
+                      key={q}
+                      className="flex items-center gap-1 rounded-full border border-warp-border/70 px-3 py-1 bg-black/40"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleGoldenEdit(q)}
+                        className="text-xs sm:text-[13px] text-warp-muted hover:text-warp-fg"
+                      >
+                        {q}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleGoldenSend(q)}
+                        className="text-xs text-emerald-400 hover:text-emerald-300"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {blocks.map((block, i) => (
