@@ -3,6 +3,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
+import Link from "next/link";
 
 const markdownComponents: Components = {
   p: ({ children }) => (
@@ -45,14 +46,14 @@ const markdownComponents: Components = {
   ),
   li: ({ children }) => <li className="leading-relaxed">{children}</li>,
   a: ({ href, children }) => (
-    <a
+    <Link
       href={href ?? ""}
       target="_blank"
       rel="noopener noreferrer"
       className="text-warp-accent hover:underline"
     >
       {children}
-    </a>
+    </Link>
   ),
   h1: ({ children }) => (
     <h1 className="text-lg font-semibold text-warp-fg mt-3 mb-1 first:mt-0">

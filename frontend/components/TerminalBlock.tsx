@@ -34,6 +34,7 @@ export function TerminalBlock({
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState("");
   const openSourceRef = useRef<HTMLLIElement>(null);
+  const lastAnimatedAnswerRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -45,14 +46,24 @@ export function TerminalBlock({
 
   useEffect(() => {
     if (!response?.answer) return;
+
+    if (lastAnimatedAnswerRef.current === response.answer) {
+      setTypedAnswer(response.answer);
+      return;
+    }
+
+    lastAnimatedAnswerRef.current = response.answer;
+
     setTypedAnswer("");
     let i = 0;
     const text = response.answer;
+
     const id = setInterval(() => {
       i += 2;
       setTypedAnswer(text.slice(0, i));
       if (i >= text.length) clearInterval(id);
     }, 18);
+
     return () => clearInterval(id);
   }, [response?.answer]);
 
@@ -145,7 +156,7 @@ export function TerminalBlock({
 
                       return (
                         <li
-                          key={s.page_id}
+                          key={`${s.page_id}/${s.text}`}
                           ref={isOpen ? openSourceRef : undefined}
                           className="relative"
                         >
