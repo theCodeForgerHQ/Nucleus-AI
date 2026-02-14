@@ -2,17 +2,16 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { Components } from "react-markdown";
 
-const markdownComponents = {
+const markdownComponents: Components = {
   p: ({ children }) => (
     <p className="mb-2 last:mb-0 text-warp-fg leading-relaxed">{children}</p>
   ),
   strong: ({ children }) => (
     <strong className="font-semibold text-warp-fg">{children}</strong>
   ),
-  em: ({ children }) => (
-    <em className="italic text-warp-fg">{children}</em>
-  ),
+  em: ({ children }) => <em className="italic text-warp-fg">{children}</em>,
   code: ({ className, children, ...props }) => {
     const isBlock = className?.startsWith("language-");
     if (isBlock) {
@@ -35,15 +34,19 @@ const markdownComponents = {
   },
   pre: ({ children }) => <>{children}</>,
   ul: ({ children }) => (
-    <ul className="list-disc list-inside mb-2 space-y-0.5 text-warp-fg">{children}</ul>
+    <ul className="list-disc list-inside mb-2 space-y-0.5 text-warp-fg">
+      {children}
+    </ul>
   ),
   ol: ({ children }) => (
-    <ol className="list-decimal list-inside mb-2 space-y-0.5 text-warp-fg">{children}</ol>
+    <ol className="list-decimal list-inside mb-2 space-y-0.5 text-warp-fg">
+      {children}
+    </ol>
   ),
   li: ({ children }) => <li className="leading-relaxed">{children}</li>,
   a: ({ href, children }) => (
     <a
-      href={href}
+      href={href ?? ""}
       target="_blank"
       rel="noopener noreferrer"
       className="text-warp-accent hover:underline"
@@ -52,13 +55,19 @@ const markdownComponents = {
     </a>
   ),
   h1: ({ children }) => (
-    <h1 className="text-lg font-semibold text-warp-fg mt-3 mb-1 first:mt-0">{children}</h1>
+    <h1 className="text-lg font-semibold text-warp-fg mt-3 mb-1 first:mt-0">
+      {children}
+    </h1>
   ),
   h2: ({ children }) => (
-    <h2 className="text-base font-semibold text-warp-fg mt-2 mb-1">{children}</h2>
+    <h2 className="text-base font-semibold text-warp-fg mt-2 mb-1">
+      {children}
+    </h2>
   ),
   h3: ({ children }) => (
-    <h3 className="text-sm font-semibold text-warp-fg mt-2 mb-0.5">{children}</h3>
+    <h3 className="text-sm font-semibold text-warp-fg mt-2 mb-0.5">
+      {children}
+    </h3>
   ),
   blockquote: ({ children }) => (
     <blockquote className="border-l-2 border-warp-border pl-3 my-2 text-warp-muted italic">
@@ -70,13 +79,16 @@ const markdownComponents = {
 
 type MarkdownContentProps = {
   content: string;
-  /** Use smaller/muted styling (e.g. for source popover); "error" for red text */
   variant?: "default" | "muted" | "error";
 };
 
-export function MarkdownContent({ content, variant = "default" }: MarkdownContentProps) {
+export function MarkdownContent({
+  content,
+  variant = "default",
+}: MarkdownContentProps) {
   const isMuted = variant === "muted";
   const isError = variant === "error";
+
   return (
     <div
       className={
@@ -87,7 +99,10 @@ export function MarkdownContent({ content, variant = "default" }: MarkdownConten
             : ""
       }
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={markdownComponents}
+      >
         {content}
       </ReactMarkdown>
     </div>

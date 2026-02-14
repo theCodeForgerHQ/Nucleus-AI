@@ -12,11 +12,11 @@ const FALLBACK_STEPS = [
   "Fetching context…",
   "Reranking results…",
   "Generating answer…",
+  "Validating answer…",
   "Almost there…",
 ];
 
 type TerminalBlockProps = {
-  blockIndex?: number;
   onScrollToImages?: () => void;
   prompt: string;
   response: QueryResponse | null;
@@ -30,7 +30,7 @@ export function TerminalBlock({
   isLoading = false,
 }: TerminalBlockProps) {
   const [stepIndex, setStepIndex] = useState(0);
-  const [openSourceIndex, setOpenSourceIndex] = useState<number | null>(null);
+  const [openSourceId, setOpenSourceId] = useState<string | null>(null);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState("");
   const openSourceRef = useRef<HTMLLIElement>(null);
@@ -49,7 +49,7 @@ export function TerminalBlock({
     let i = 0;
     const text = response.answer;
     const id = setInterval(() => {
-      i += Math.max(1, Math.floor(Math.random() * 3));
+      i += 2;
       setTypedAnswer(text.slice(0, i));
       if (i >= text.length) clearInterval(id);
     }, 18);
@@ -57,42 +57,42 @@ export function TerminalBlock({
   }, [response?.answer]);
 
   useEffect(() => {
-    if (openSourceIndex === null) return;
+    if (openSourceId === null) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (
         openSourceRef.current &&
         !openSourceRef.current.contains(e.target as Node)
       ) {
-        setOpenSourceIndex(null);
+        setOpenSourceId(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [openSourceIndex]);
+  }, [openSourceId]);
 
   const hasImages = response?.images && response.images.length > 0;
-  const isBlockClickable = hasImages && onScrollToImages;
+  const isPromptClickable = hasImages && onScrollToImages;
 
   return (
-    <div
-      className={`terminal-block rounded-r pl-3 pr-3 sm:pl-4 sm:pr-4 py-3 my-1 transition-colors ${
-        isBlockClickable ? "cursor-pointer hover:bg-warp-surface/30" : ""
-      }`}
-      role={isBlockClickable ? "button" : undefined}
-      tabIndex={isBlockClickable ? 0 : undefined}
-      onClick={isBlockClickable ? onScrollToImages : undefined}
-      onKeyDown={
-        isBlockClickable
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onScrollToImages?.();
+    <div className="terminal-block rounded-r pl-3 pr-3 sm:pl-4 sm:pr-4 py-3 my-1 transition-colors">
+      <div
+        className={`flex flex-wrap items-baseline gap-1 ${
+          isPromptClickable ? "cursor-pointer hover:bg-warp-surface/30" : ""
+        }`}
+        role={isPromptClickable ? "button" : undefined}
+        tabIndex={isPromptClickable ? 0 : undefined}
+        onClick={isPromptClickable ? onScrollToImages : undefined}
+        onKeyDown={
+          isPromptClickable
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onScrollToImages?.();
+                }
               }
-            }
-          : undefined
-      }
-    >
-      <div className="flex flex-wrap items-baseline gap-1">
+            : undefined
+        }
+      >
         <span className="text-warp-green shrink-0">{PROMPT_PREFIX}</span>
         <span className="text-warp-fg break-words">{prompt}</span>
       </div>
@@ -106,7 +106,7 @@ export function TerminalBlock({
 
       {response && (
         <div className="mt-3 space-y-3 text-sm">
-          <div className="flex flex-wrap items-start gap-2">
+          <div className="flex flex-wrap items-baseline gap-2">
             <div className="min-w-0 flex-1 break-words leading-relaxed">
               <MarkdownContent
                 content={typedAnswer}
@@ -137,15 +137,15 @@ export function TerminalBlock({
                     Sources ({total})
                   </div>
                   <ul className="space-y-1">
-                    {visibleSources.map((s, i) => {
+                    {visibleSources.map((s) => {
                       const firstLine =
                         s.text.split(/\r?\n/)[0]?.trim().replace(/\s+/g, " ") ||
                         s.section;
-                      const isOpen = openSourceIndex === i;
+                      const isOpen = openSourceId === s.page_id;
 
                       return (
                         <li
-                          key={i}
+                          key={s.page_id}
                           ref={isOpen ? openSourceRef : undefined}
                           className="relative"
                         >
@@ -154,8 +154,8 @@ export function TerminalBlock({
                             onClick={(e) => {
                               e.stopPropagation();
                               e.preventDefault();
-                              setOpenSourceIndex((prev) =>
-                                prev === i ? null : i,
+                              setOpenSourceId((prev) =>
+                                prev === s.page_id ? null : s.page_id,
                               );
                             }}
                             className="w-full text-left px-2 py-1 rounded border border-warp-border/60 bg-warp-surface/40 hover:bg-warp-surface/60 hover:border-warp-border cursor-pointer flex items-center gap-1 min-w-0 transition-colors"
@@ -197,7 +197,7 @@ export function TerminalBlock({
                       onClick={(e) => {
                         e.stopPropagation();
                         setSourcesExpanded((prev) => !prev);
-                        setOpenSourceIndex(null);
+                        setOpenSourceId(null);
                       }}
                       className="mt-1.5 text-warp-accent hover:underline focus:outline-none"
                     >

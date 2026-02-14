@@ -354,7 +354,6 @@ export default function Home() {
             {blocks.map((block, i) => (
               <div key={block.id} data-block-index={i}>
                 <TerminalBlock
-                  blockIndex={i}
                   prompt={block.prompt}
                   response={block.response}
                   isLoading={block.isLoading}
@@ -378,7 +377,7 @@ export default function Home() {
               type="button"
               onClick={handleSubmit}
               disabled={!input.trim() || loading}
-              className="w-9 h-9 mt-2.5 flex items-center justify-center text-emerald-500 hover:text-emerald-400 disabled:opacity-35"
+              className="w-9 h-9 mt-5 flex items-center justify-center text-emerald-500 hover:text-emerald-400 disabled:opacity-35"
             >
               <span
                 className={`inline-flex text-xl ${
