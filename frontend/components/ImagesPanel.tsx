@@ -6,7 +6,6 @@ export type ImageWithBlock = {
   url: string;
   page_id: string;
   caption: string | null;
-  blockIndex: number;
 };
 
 type ImagesPanelProps = {
@@ -34,7 +33,7 @@ export function ImagesPanel({
   useEffect(() => {
     if (scrollToBlockIndex == null || !scrollRef.current) return;
     const first = scrollRef.current.querySelector(
-      `[data-block-index="${scrollToBlockIndex}"]`
+      `[data-block-index="${scrollToBlockIndex}"]`,
     );
     first?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [scrollToBlockIndex]);
@@ -62,7 +61,7 @@ export function ImagesPanel({
       className="h-full overflow-y-auto overflow-x-hidden flex flex-col gap-3 py-2 pr-2"
     >
       {images.map((img, i) => (
-        <div key={`${img.blockIndex}-${i}`} data-block-index={img.blockIndex}>
+        <div key={`${img.page_id}-${i}`} data-block-index={img.page_id}>
           <ImageCard img={img} />
         </div>
       ))}

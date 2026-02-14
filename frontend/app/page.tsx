@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useCallback, useRef, useEffect } from "react";
 import { postQuery, type QueryResponse, type HistoryMessage } from "@/lib/api";
 import { TerminalBlock } from "@/components/TerminalBlock";
@@ -8,20 +7,16 @@ import {
   type TerminalInputHandle,
 } from "@/components/TerminalInput";
 import { ImagesPanel } from "@/components/ImagesPanel";
-
 const STORAGE_KEY = "nucleus-ai-chat-blocks";
-
 type Block = {
   id: string;
   prompt: string;
   response: QueryResponse | null;
   isLoading: boolean;
 };
-
 function nextId() {
   return Math.random().toString(36).slice(2, 12);
 }
-
 function loadBlocksFromStorage(): Block[] {
   if (typeof window === "undefined") return [];
   try {
@@ -42,7 +37,6 @@ function loadBlocksFromStorage(): Block[] {
     return [];
   }
 }
-
 function saveBlocksToStorage(blocks: Block[]) {
   try {
     const toSave = blocks
@@ -51,13 +45,25 @@ function saveBlocksToStorage(blocks: Block[]) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch {}
 }
-
 function clearStorage() {
   try {
     window.localStorage.removeItem(STORAGE_KEY);
   } catch {}
 }
-
+const SendArrowIcon = () => (
+  <svg
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M5 12L19 5L12 19L10 14L5 12Z" />
+  </svg>
+);
 export default function Home() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [input, setInput] = useState("");
@@ -69,16 +75,16 @@ export default function Home() {
   const [imagesPanelOpen, setImagesPanelOpen] = useState(false);
   const [sendAnimating, setSendAnimating] = useState(false);
   const [arrowEntering, setArrowEntering] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const ratioRef = useRef<number[]>([]);
   const inputRef = useRef<TerminalInputHandle | null>(null);
   const hasHydratedRef = useRef(false);
-
+  const didInitialScrollRef = useRef(false);
   const ARROW_LAUNCH_MS = 550;
-
   useEffect(() => {
-    setBlocks(loadBlocksFromStorage());
+    const loaded = loadBlocksFromStorage();
+    setBlocks(loaded);
   }, []);
-
   useEffect(() => {
     if (!hasHydratedRef.current) {
       hasHydratedRef.current = true;
@@ -86,28 +92,42 @@ export default function Home() {
     }
     saveBlocksToStorage(blocks);
   }, [blocks]);
-
+  useEffect(() => {
+    if (
+      blocks.length > 0 &&
+      !didInitialScrollRef.current &&
+      scrollRef.current
+    ) {
+      didInitialScrollRef.current = true;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [blocks.length]);
   useEffect(() => {
     if (!sendAnimating) return;
     const t = setTimeout(() => setSendAnimating(false), ARROW_LAUNCH_MS);
     return () => clearTimeout(t);
   }, [sendAnimating]);
-
   useEffect(() => {
     if (loading) return;
     setArrowEntering(true);
     const t = setTimeout(() => setArrowEntering(false), 50);
     return () => clearTimeout(t);
   }, [loading]);
-
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior,
+    });
+  }, []);
   const handleNewChat = useCallback(() => {
     setBlocks([]);
     setError(null);
     setLoading(false);
+    setImagesPanelOpen(false);
     clearStorage();
+    didInitialScrollRef.current = false;
     setTimeout(() => inputRef.current?.focus(), 0);
   }, []);
-
   const buildHistory = useCallback((): HistoryMessage[] => {
     const out: HistoryMessage[] = [];
     for (const b of blocks) {
@@ -118,22 +138,18 @@ export default function Home() {
     }
     return out;
   }, [blocks]);
-
   const sendPrompt = useCallback(
     async (q: string) => {
       if (!q.trim() || loading) return;
-
       setSendAnimating(true);
       setInput("");
       setError(null);
-
       const id = nextId();
       setBlocks((prev) => [
         ...prev,
         { id, prompt: q, response: null, isLoading: true },
       ]);
       setLoading(true);
-
       try {
         const history = buildHistory();
         const res = await postQuery(q, history);
@@ -142,6 +158,7 @@ export default function Home() {
             b.id === id ? { ...b, response: res, isLoading: false } : b,
           ),
         );
+        setTimeout(() => scrollToBottom("smooth"), 50);
       } catch (e) {
         const message = e instanceof Error ? e.message : "Request failed";
         setError(message);
@@ -161,46 +178,43 @@ export default function Home() {
               : b,
           ),
         );
+        setTimeout(() => scrollToBottom("smooth"), 50);
       } finally {
         setLoading(false);
       }
     },
-    [loading, buildHistory],
+    [loading, buildHistory, scrollToBottom],
   );
-
   const handleSubmit = useCallback(async () => {
     const q = input.trim();
     if (!q || loading) return;
-
     await sendPrompt(q);
   }, [input, loading, sendPrompt]);
-
   const goldenQuestions = [
-    "What do we know about Nucleus AI?",
-    "Summarize the latest updates in our Google knowledge base.",
-    "Where can I find docs about Nucleus integrations?",
-    "Give me a quick overview of our architecture.",
-    "What are the key decisions from our recent design docs?",
+    "When was Alphabet Inc. founded and why was it created?",
+    "Who are the founders of Google?",
+    "Which companies are subsidiaries of Alphabet Inc.?",
+    "What is the relationship between Google and Alphabet Inc.?",
+    "Where is Alphabet Inc. headquartered?",
   ];
-
   const handleGoldenEdit = (q: string) => {
     setInput(q);
   };
-
   const handleGoldenSend = (q: string) => {
     setInput(q);
     sendPrompt(q);
   };
-
   const hasConversation = blocks.length > 0;
-
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [blocks]);
-
+    const el = scrollRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setShowScrollBtn(distFromBottom > 120);
+    };
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, []);
   useEffect(() => {
     if (blocks.length > 0) {
       setActiveBlockIndex(blocks.length - 1);
@@ -208,11 +222,9 @@ export default function Home() {
     ratioRef.current = new Array(blocks.length).fill(0);
     blockRefs.current = blockRefs.current.slice(0, blocks.length);
   }, [blocks.length]);
-
   useEffect(() => {
     const root = scrollRef.current;
     if (!root || blocks.length === 0) return;
-
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -235,13 +247,11 @@ export default function Home() {
         threshold: [0, 0.25, 0.5, 0.75, 1],
       },
     );
-
     root
       .querySelectorAll("[data-block-index]")
       .forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, [blocks.length]);
-
   const sidebarImagesWithBlock: {
     url: string;
     page_id: string;
@@ -253,7 +263,6 @@ export default function Home() {
       sidebarImagesWithBlock.push({ ...img, blockIndex: i });
     });
   });
-
   return (
     <div className="flex flex-col h-screen min-h-0">
       <header className="shrink-0 min-h-9 flex items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-warp-border bg-black">
@@ -265,7 +274,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setImagesPanelOpen((o) => !o)}
-              className="md:hidden text-warp-muted hover:text-warp-fg text-xs font-medium px-2 py-1.5 rounded border border-warp-border/60 hover:border-warp-border bg-transparent transition-colors"
+              className="text-warp-muted hover:text-warp-fg text-xs font-medium px-2 py-1.5 rounded border border-warp-border/60 hover:border-warp-border bg-transparent transition-colors"
             >
               Images{" "}
               {sidebarImagesWithBlock.length > 0 &&
@@ -282,44 +291,13 @@ export default function Home() {
           </button>
         </div>
       </header>
-
-      <div className="flex-1 flex min-h-0 relative bg-black">
+      <div className="flex-1 flex min-h-0 relative bg-black overflow-hidden">
         <div
-          className={`flex-1 flex flex-col min-h-0 ${hasConversation ? "md:border-r md:border-warp-border md:w-[75%]" : ""}`}
+          className={`flex-1 flex flex-col min-h-0 transition-all duration-300 ${hasConversation && imagesPanelOpen ? "md:w-[75%]" : "w-full"}`}
         >
-          {!error && hasConversation && (
-            <div className="px-3 sm:px-4 pt-4">
-              <p className="text-warp-fg text-base sm:text-lg font-medium tracking-wide text-center">
-                Ask. Search. Know.
-              </p>
-              <div className="mt-3 flex flex-wrap justify-center gap-2">
-                {goldenQuestions.map((q) => (
-                  <div
-                    key={q}
-                    className="flex items-center gap-1 rounded-full border border-warp-border/70 px-3 py-1 bg-black/40"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleGoldenEdit(q)}
-                      className="text-xs sm:text-[13px] text-warp-muted hover:text-warp-fg"
-                    >
-                      {q}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleGoldenSend(q)}
-                      className="text-xs text-emerald-400 hover:text-emerald-300"
-                    >
-                      Send
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto px-3 sm:px-4 py-4"
+            className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 relative"
           >
             {!hasConversation && !error && (
               <div className="h-full flex flex-col items-center justify-center gap-4">
@@ -342,28 +320,60 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => handleGoldenSend(q)}
-                        className="text-xs text-emerald-400 hover:text-emerald-300"
+                        className="text-emerald-500 hover:text-emerald-400 flex items-center justify-center"
+                        aria-label="Send"
                       >
-                        Send
+                        <SendArrowIcon />
                       </button>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            {blocks.map((block, i) => (
-              <div key={block.id} data-block-index={i}>
-                <TerminalBlock
-                  prompt={block.prompt}
-                  response={block.response}
-                  isLoading={block.isLoading}
-                  onScrollToImages={() => setActiveBlockIndex(i)}
-                />
-              </div>
-            ))}
-            {error && <div className="text-warp-red text-sm py-2">{error}</div>}
+            {hasConversation && (
+              <>
+                {blocks.map((block, i) => (
+                  <div key={block.id} data-block-index={i}>
+                    <TerminalBlock
+                      prompt={block.prompt}
+                      response={block.response}
+                      isLoading={block.isLoading}
+                      onScrollToImages={() => setActiveBlockIndex(i)}
+                    />
+                  </div>
+                ))}
+                {error && (
+                  <div className="text-warp-red text-sm py-2">{error}</div>
+                )}
+              </>
+            )}
+            {!hasConversation && error && (
+              <div className="text-warp-red text-sm py-2">{error}</div>
+            )}
+            {showScrollBtn && (
+              <button
+                type="button"
+                onClick={() => scrollToBottom("smooth")}
+                className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-warp-border bg-black/80 text-warp-muted hover:text-warp-fg hover:border-warp-border text-xs transition-all shadow-lg backdrop-blur-sm"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <polyline points="19 12 12 19 5 12" />
+                </svg>
+                Scroll to bottom
+              </button>
+            )}
           </div>
-
           <div className="border-t border-warp-border px-2 pr-4 flex items-start gap-2">
             <TerminalInput
               ref={inputRef}
@@ -393,18 +403,31 @@ export default function Home() {
             </button>
           </div>
         </div>
-
-        <aside
-          className={`fixed md:relative right-0 top-0 h-full border-l border-warp-border bg-black transition-transform ${
-            hasConversation ? "md:translate-x-0 md:w-[25%]" : "hidden"
-          }`}
-        >
-          <ImagesPanel
-            images={sidebarImagesWithBlock}
-            scrollToBlockIndex={activeBlockIndex}
-            isLoading={loading}
-          />
-        </aside>
+        {hasConversation && imagesPanelOpen && (
+          <aside className="absolute inset-y-0 right-0 w-[280px] sm:w-[300px] md:relative md:w-[25%] border-l border-warp-border bg-black z-40 flex flex-col">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-warp-border shrink-0 md:hidden">
+              <span className="text-warp-muted text-xs font-medium">
+                Images{" "}
+                {sidebarImagesWithBlock.length > 0 &&
+                  `(${sidebarImagesWithBlock.length})`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setImagesPanelOpen(false)}
+                className="text-warp-muted hover:text-warp-fg text-xs px-2 py-0.5 rounded border border-warp-border/60"
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <ImagesPanel
+                images={sidebarImagesWithBlock}
+                scrollToBlockIndex={activeBlockIndex}
+                isLoading={loading}
+              />
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   );
