@@ -121,6 +121,8 @@ Primary conceptual entities:
 - **`kb_images`**: image corpus keyed by deterministic `image_hash`, with caption/url/page mapping and active flags.
 - **`kb_page_ingestion_state`**: per-page stage statuses for confluence/neon/pinecone + retry lifecycle.
 
+Neon is intentionally used as the operational system of record for metadata and processing state. It gives transactional status updates, explicit lifecycle flags (`is_stashed`, `is_active`), and simple retry queries over pending/failed records. This keeps operational control-plane concerns separate from Pinecone's retrieval-plane role, where vector search relevance is the priority.
+
 ## 4.2 Vector (Pinecone)
 
 Indexes used:
@@ -145,6 +147,8 @@ These provide stage-level latency/status and end-to-end result monitoring.
 ---
 
 ## 5) Ingestion Pipeline Workflows
+
+The ingestion approach separates **fast event capture** from **heavier content processing**. In practice, Confluence update activity can be very chatty while users are actively editing (including small keystroke-level or formatting edits). Instead of re-embedding and re-indexing on every transient update, the system marks pages for refresh and lets scheduled processing handle stabilization and batching.
 
 ## 5.1 Index trigger workflow (page metadata bootstrap)
 
@@ -194,6 +198,8 @@ The page processor has two entrypoints:
 
 - **one_off**: initial/explicit backfill over fetched page IDs.
 - **cron**: incremental processing over `kb_pages.is_stashed = TRUE`.
+
+This design keeps webhook-facing paths responsive while moving expensive extraction/chunking/embedding work into controlled cron windows. The result is lower duplicate work, less index churn during active authoring, and more predictable resource usage.
 
 Processing stages per page:
 
