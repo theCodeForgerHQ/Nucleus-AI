@@ -106,34 +106,6 @@ flowchart LR
   RETRY --> NEON
 
   MB --> CH
-# Nucleus-AI
-
-Nucleus-AI is a Confluence-powered RAG platform for internal knowledge search and grounded Q&A.
-
-## What it does
-- Ingests Confluence pages
-- Processes/chunks content and generates embeddings
-- Stores metadata in Neon and vectors in Pinecone
-- Serves answers through a FastAPI LLM engine and Next.js frontend
-- Tracks pipeline/query analytics in ClickHouse (Metabase-ready)
-
-## Stack
-- **Backend:** FastAPI, LangGraph, Python
-- **Frontend:** Next.js
-- **Data:** Neon Postgres, Pinecone, ClickHouse
-- **Infra:** Docker Compose, Make
-
-## Quick start
-```bash
-# 1) Configure env
-# create .env manually
-
-# 2) Start services
-make up
-
-# 3) Open apps
-# Frontend: http://localhost:3001
-# Metabase: http://localhost:3000
 ```
 
 ---
@@ -197,14 +169,6 @@ sequenceDiagram
     I->>P: upsert kb-pages record
     I->>A: record stage + indexing result
   end
-## Common commands
-```bash
-make up                # start stack
-make down              # stop stack
-make logs              # follow logs
-make indexer-trigger   # trigger initial page indexing
-make processor-oneoff  # run full page processing
-make indexer-retry     # retry failed indexing stages
 ```
 
 ### Notes
@@ -409,14 +373,3 @@ This split mirrors existing service seams and minimizes coupling.
 5. Add integration tests for pipeline contracts (indexing state, retry, rag flow).
 6. Fix cron processor neon image call signature mismatch and add regression test.
 7. Add message queue/event bus for decoupled ingestion and processing throughput control.
-## Required environment variables
-- `CONFLUENCE_BASE_URL`
-- `CONFLUENCE_AUTH_USER`
-- `CONFLUENCE_API_TOKEN`
-- `NEON_DB_URL`
-- `PINECONE_API_KEY`
-- `GROQ_API_KEY`
-- `GROQ_MODEL`
-
-## License
-See [LICENSE](./LICENSE).
