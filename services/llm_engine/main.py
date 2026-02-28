@@ -17,7 +17,7 @@ from langgraph.graph import StateGraph, END
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-length_guard = Guard().use_many(
+length_guard = Guard().use(
     ValidLength(min=20, max=4000)
 )
 
@@ -191,13 +191,19 @@ def call_groq_llm(query, context, history=None):
             {
                 "role": "system",
                 "content": (
-                    "You are an internal company knowledge assistant. "
-                    "Answer only using the provided context. "
-                    "If the answer is not explicitly in the context, reply: "
-                    "'Not found in knowledge base.' "
-                    "After answering, always add one relevant follow-up question "
-                    "based only on the context and the user's question."
-                ),
+                        "You are an internal company knowledge assistant for Alphabet/Google. "
+                        "Answer only using the provided context. Be clear and concise. "
+                        "If the answer is not explicitly in the context, reply: "
+                        "'I couldn't find that in the knowledge base.' "
+                        "\n\n"
+                        "After your answer, add a natural conversational closing. "
+                        "This should be a smooth 1-2 sentence transition that either: "
+                        "(a) offers to dive deeper into a related aspect, or "
+                        "(b) poses one relevant follow-up question — "
+                        "phrased naturally like 'Would you like to explore...', "
+                        "'Curious about...?', or 'If you're interested, I can also tell you about...'. "
+                        "Never just drop a question abruptly. Make it feel like a conversation."
+                    ),
             }
         ]
 
@@ -457,10 +463,10 @@ def general_reply_node(state: AgentState):
             {
                 "role": "system",
                 "content": (
-                    "You are a helpful company internal knowledge assistant. "
-                    "Greet the user or respond to their general query politely. "
-                    "After your response, always include a proactive follow-up question "
-                    "inviting them to ask about Alphabet, Google products, or company updates."
+                    """You are a helpful internal knowledge assistant for Google.
+                    Greet the user or respond to their query politely and conversationally.
+                    Use a natural, friendly tone — avoid sounding scripted or repetitive.
+                    Respond in a natural, conversational tone. When it makes sense, continue the conversation with a relevant and engaging follow-up question related to Alphabet, Google products, or company updates."""
                 )
             }
         ]
@@ -525,7 +531,7 @@ def retrieve_node(state: AgentState):
         chunks_index = indexes["chunks"]
         pages_index = indexes["pages"]
 
-        TOP_K_CHUNKS = 50
+        TOP_K_CHUNKS = 15
         TOP_K_PAGES = 20
         FINAL_TOP_K = 10
         W_CHUNK = 0.7

@@ -1,375 +1,140 @@
-# Nucleus-AI System Design Document
+# Nucleus AI
 
-## 1) Executive Summary
+Production-style, multi-service AI knowledge system for enterprise docs.
 
-Nucleus-AI is a multi-service Retrieval-Augmented Generation (RAG) platform centered on Confluence ingestion, vector + relational indexing, and a chat experience that answers internal knowledge questions with source grounding.
+This project ingests Confluence pages, processes text/tables/images, indexes them into vector + relational stores, and serves grounded answers through a retrieval-rerank-validate pipeline with full stage-level observability.
 
-At a high level, the platform is split into:
+## Why This Is Worth Looking At
 
-- **Ingestion and indexing plane**: discovers Confluence pages, stores metadata, and prepares retryable indexing state.
-- **Content processing plane**: extracts text/tables/images, chunks content, computes embeddings, and stores artifacts in Neon + Pinecone.
-- **Query and reasoning plane**: runs an intent-routed LangGraph workflow to retrieve evidence, generate answers, validate with NLI, and optionally fall back to web search.
-- **Presentation plane**: a Next.js frontend with conversational history and image-side panel.
-- **Observability plane**: stage and pipeline metrics stored in ClickHouse and visualized with Metabase.
+- Designed as a real system, not a notebook demo: independent services, async jobs, retries, and analytics.
+- Retrieval quality is explicit: hybrid recall + cross-encoder reranking + NLI contradiction checks.
+- Data freshness is explicit: page stashing, one-off indexing, and cron-style delta processing.
+- Operability is explicit: ClickHouse pipeline telemetry + Metabase dashboards.
 
----
-
-## 2) Repository Capability Index ("what exists")
-
-### Core runtime services
-
-- `services/page_indexer`: FastAPI service that handles page-created/update/delete/restore events and writes initial page metadata/state to Neon and Pinecone.
-- `services/llm_engine`: FastAPI + LangGraph RAG orchestrator for query answering.
-- `services/nli_service`: local MNLI model inference endpoint for contradiction scoring.
-- `services/reranker_service`: cross-encoder reranking service.
-
-### Batch/trigger jobs
-
-- `jobs/page_indexer_trigger`: enumerates Confluence page IDs and posts each to page indexer.
-- `jobs/indexer_retry`: scans failed ingestion states and retries stage-by-stage.
-- `jobs/page_processor/jobs/one_off`: full initial processing over discovered pages.
-- `jobs/page_processor/jobs/cron`: incremental processing for stashed pages.
-
-### Shared libraries
-
-- `common/utils.py`: env, Neon DB connection, Pinecone client.
-- `common/analytics.py`: ClickHouse insert helpers for stage/page/query analytics.
-- `jobs/page_processor/helpers/*`: extraction, hashing, storage upserts, embedding wrappers.
-
-### Product/UI
-
-- `frontend/`: Next.js app with `/api/query` proxy and terminal-style chat UX.
-
-### Infrastructure
-
-- `docker-compose.yml`: all services + ClickHouse + Metabase + frontend.
-- `clickhouse/init/logs.sql`: analytics schema bootstrap.
-
----
-
-## 3) Deployment & Runtime Topology
+## System Architecture
 
 ```mermaid
 flowchart LR
-  subgraph Client
-    U[Browser User]
-  end
+  A["Confluence"] --> B["Page Indexer Service (FastAPI)"]
+  B --> C["Neon/Postgres (kb_pages + ingestion state)"]
+  B --> D["Pinecone (kb-pages index)"]
 
-  subgraph App[Application Layer]
-    FE[Next.js Frontend :3001]
-    LLM[llm-engine :8200]
-    NLI[nli-service :8080]
-    RR[reranker-service :8090]
-    PI[page-indexer :8000]
-  end
+  E["Page Processor Jobs (one-off + cron)"] --> A
+  E --> F["Neon/Postgres (kb_chunks, kb_images)"]
+  E --> G["Pinecone (kb-chunks, kb-images)"]
 
-  subgraph Jobs[Batch Jobs]
-    TRIG[page-indexer-trigger]
-    RETRY[indexer-retry]
-    PROC1[page-processor-oneoff]
-    PROCC[page-processor-cron]
-  end
+  H["Frontend (Next.js)"] --> I["LLM Engine (FastAPI + LangGraph)"]
+  I --> G
+  I --> F
+  I --> J["Reranker Service (Cross-Encoder)"]
+  I --> K["NLI Service (DeBERTa MNLI)"]
+  I --> L["Groq LLM"]
+  I --> M["DuckDuckGo fallback (when KB has no answer)"]
 
-  subgraph Data[Data Layer]
-    CF[Confluence API]
-    NEON[(Neon Postgres)]
-    PC[(Pinecone: kb-pages/kb-chunks/kb-images)]
-    CH[(ClickHouse analytics)]
-    MB[Metabase :3000]
-  end
-
-  U --> FE
-  FE --> LLM
-  LLM --> NLI
-  LLM --> RR
-  LLM --> NEON
-  LLM --> PC
-
-  PI --> CF
-  PI --> NEON
-  PI --> PC
-  PI --> CH
-
-  PROC1 --> CF
-  PROC1 --> NEON
-  PROC1 --> PC
-  PROC1 --> CH
-
-  PROCC --> CF
-  PROCC --> NEON
-  PROCC --> PC
-  PROCC --> CH
-
-  TRIG --> CF
-  TRIG --> PI
-  RETRY --> PI
-  RETRY --> NEON
-
-  MB --> CH
+  B --> N["ClickHouse Analytics"]
+  E --> N
+  I --> N
+  N --> O["Metabase"]
 ```
 
----
+## Query Pipeline (Online Path)
 
-## 4) Data Model & Storage Responsibilities
+`frontend -> llm-engine /query -> intent routing -> retrieval -> reranking -> generation -> validation`
 
-## 4.1 Relational (Neon)
+1. Intent router classifies query as `knowledge` vs `general`.
+2. Retrieval fuses chunk-level and page-level semantic search from Pinecone.
+3. Candidate chunks are reranked by local cross-encoder (`ms-marco-MiniLM-L-6-v2`).
+4. LLM generates only from provided context.
+5. NLI service scores contradiction between context and answer.
+6. Guardrails enforce output constraints; response returns answer + sources + related images.
 
-Primary conceptual entities:
+## Ingestion & Processing (Offline Path)
 
-- **`kb_pages`**: page metadata (`page_id`, title, source URL, created timestamp, stashed state).
-- **`kb_chunks`**: chunk corpus keyed by deterministic `chunk_hash`, with `section_path`, `page_id`, `is_active`.
-- **`kb_images`**: image corpus keyed by deterministic `image_hash`, with caption/url/page mapping and active flags.
-- **`kb_page_ingestion_state`**: per-page stage statuses for confluence/neon/pinecone + retry lifecycle.
+1. `page-indexer` receives page IDs and initializes ingestion state.
+2. Metadata lands in Neon (`kb_pages`) and Pinecone (`kb-pages`).
+3. `page-processor` fetches page HTML, extracts text/tables/images, builds semantic chunks.
+4. Chunks/images are upserted into Neon + Pinecone.
+5. Cron job computes deltas by hash and deactivates stale chunks/images (`is_active = false`).
+6. Retry job replays failed stages and marks fatal rows when recovery fails.
 
-Neon is intentionally used as the operational system of record for metadata and processing state. It gives transactional status updates, explicit lifecycle flags (`is_stashed`, `is_active`), and simple retry queries over pending/failed records. This keeps operational control-plane concerns separate from Pinecone's retrieval-plane role, where vector search relevance is the priority.
+## Tech Stack
 
-## 4.2 Vector (Pinecone)
+- Backend: FastAPI, LangGraph, Python
+- LLM/AI: Groq (OpenAI-compatible), CrossEncoder reranker, DeBERTa NLI, Guardrails
+- Vector DB: Pinecone (`kb-pages`, `kb-chunks`, `kb-images`)
+- Relational DB: Neon/Postgres
+- Analytics: ClickHouse + Metabase
+- Frontend: Next.js (App Router), TypeScript, Tailwind
+- Infra: Docker Compose, Make
 
-Indexes used:
+## Repo Structure
 
-- `kb-pages` for page metadata/title retrieval.
-- `kb-chunks` for content semantic retrieval.
-- `kb-images` for image-caption semantic retrieval.
-
-Record IDs are content hashes for chunks/images and `page:{page_id}` for pages.
-
-## 4.3 Analytics (ClickHouse)
-
-Metrics tables (insert-only from codepaths):
-
-- `stage_execution`
-- `indexing_page_result`
-- `processing_page_result`
-- `query_result`
-
-These provide stage-level latency/status and end-to-end result monitoring.
-
----
-
-## 5) Ingestion Pipeline Workflows
-
-The ingestion approach separates **fast event capture** from **heavier content processing**. In practice, Confluence update activity can be very chatty while users are actively editing (including small keystroke-level or formatting edits). Instead of re-embedding and re-indexing on every transient update, the system marks pages for refresh and lets scheduled processing handle stabilization and batching.
-
-## 5.1 Index trigger workflow (page metadata bootstrap)
-
-```mermaid
-sequenceDiagram
-  participant J as page_indexer_trigger job
-  participant C as Confluence API
-  participant I as page-indexer service
-  participant N as Neon
-  participant P as Pinecone
-  participant A as ClickHouse
-
-  J->>C: fetch_page_ids()
-  loop each page_id
-    J->>I: POST / {page_id}
-    I->>C: fetch page title + createdDate
-    I->>N: insert kb_pages (stashed=true)
-    I->>P: upsert kb-pages record
-    I->>A: record stage + indexing result
-  end
+```text
+services/
+  page_indexer/       # metadata ingestion + retry endpoints
+  llm_engine/         # LangGraph RAG runtime
+  reranker_service/   # cross-encoder scoring API
+  nli_service/        # contradiction scoring API
+jobs/
+  page_indexer_trigger/   # bulk page ID trigger
+  indexer_retry/          # failed stage reprocessing
+  page_processor/
+    jobs/one_off/         # initial full processing
+    jobs/cron/            # incremental delta processing
+frontend/                 # chat UI + API proxy
+clickhouse/init/          # analytics schema
 ```
 
-### Notes
-- Page indexer initializes retry state in `kb_page_ingestion_state`.
-- Operations are fault-tolerant through retry-enabled HTTP clients and stage retries.
+## Local Run
 
-## 5.2 Retry workflow
+### 1) Configure environment
 
-```mermaid
-flowchart TD
-  A[Read failed rows from kb_page_ingestion_state] --> B[Retry confluence fetch]
-  B -->|fail| F[Mark all stages fatal + last_error]
-  B -->|success| C{neon_status success?}
-  C -->|no| D[POST /retry/neon]
-  C -->|yes| E
-  D --> E{pinecone_status success?}
-  E -->|no| G[POST /retry/pinecone]
-  E -->|yes| H[Done]
-  G --> H
+Create `.env` with keys used by services:
+
+- `CONFLUENCE_API_TOKEN`
+- `CONFLUENCE_AUTH_USER`
+- `CONFLUENCE_SPACE_KEY`
+- `CONFLUENCE_BASE_URL`
+- `CONFLUENCE_ANCESTOR_ID` (optional)
+- `NEON_DB_URL`
+- `PINECONE_API_KEY`
+- `GROQ_API_KEY`
+- `GROQ_MODEL`
+- `LANGCHAIN_TRACING_V2`
+- `LANGCHAIN_API_KEY`
+- `LANGCHAIN_PROJECT`
+- `PROMPTLAYER_API_KEY`
+- `GOOGLE_API_KEY`
+- `HUGGING_FACE_API_KEY`
+
+Also provide Guardrails token via `.secrets/guardrails_token`.
+
+### 2) Start stack
+
+```bash
+make up
 ```
 
----
+### 3) Trigger ingestion/processing jobs
 
-## 6) Content Processing Pipeline (Chunking + Embeddings)
-
-The page processor has two entrypoints:
-
-- **one_off**: initial/explicit backfill over fetched page IDs.
-- **cron**: incremental processing over `kb_pages.is_stashed = TRUE`.
-
-This design keeps webhook-facing paths responsive while moving expensive extraction/chunking/embedding work into controlled cron windows. The result is lower duplicate work, less index churn during active authoring, and more predictable resource usage.
-
-Processing stages per page:
-
-1. Fetch page storage HTML from Confluence.
-2. Extract images + structured table facts.
-3. Convert HTML→Markdown (tables/images removed for text path).
-4. Create structural chunks (`SentenceSplitter`), then semantic splits (`SemanticSplitterNodeParser`) using local HF embedder.
-5. Infer section paths from DOM heading ancestry.
-6. Upsert chunks/images into Neon and Pinecone.
-7. For cron mode: deactivate removed chunks/images and add only deltas.
-8. Mark page unstashed if all sink steps succeed.
-9. Emit processing analytics.
-
-```mermaid
-flowchart LR
-  A[Confluence HTML] --> B[Image Extractor]
-  A --> C[Table Fact Extractor]
-  A --> D[HTML to Markdown]
-  D --> E[Sentence Splitter]
-  E --> F[Semantic Splitter]
-  F --> G[Section Path Mapping]
-  C --> H[Table Fact Chunks]
-  B --> I[Image Records]
-  G --> J[Text Chunks]
-  H --> K[Combined chunk set]
-  J --> K
-  K --> L[Neon kb_chunks]
-  K --> M[Pinecone kb-chunks]
-  I --> N[Neon kb_images]
-  I --> O[Pinecone kb-images]
+```bash
+make indexer-trigger
+make processor-oneoff
+make indexer-retry
 ```
 
----
+### 4) Access services
 
-## 7) Query/RAG Pipeline Design
+- Frontend: `http://localhost:3001`
+- LLM Engine: `http://localhost:8200`
+- Reranker: `http://localhost:8090`
+- NLI: `http://localhost:8080`
+- Page Indexer: `http://localhost:8000`
+- Metabase: `http://localhost:3000`
 
-The `llm_engine` compiles a LangGraph state machine with explicit nodes:
+## What This Demonstrates About My Engineering
 
-- `router` (intent classification: `knowledge` vs `general`)
-- `general_reply` (friendly non-RAG response)
-- `retrieve` (Pinecone retrieval + Neon fetch + reranking + context build)
-- `generate` (LLM generation + image retrieval + optional web fallback)
-- `validate` (NLI contradiction check + output-length guard + final response)
-
-```mermaid
-flowchart TD
-  Q[POST /query] --> R[router:intent]
-  R -->|general| G[general_reply]
-  R -->|knowledge| T[retrieve]
-  T --> U[generate]
-  U --> V[validate]
-  G --> Z[Final output]
-  V --> Z
-```
-
-### Retrieval mechanics
-- Vector search on `kb-chunks` using query text.
-- Candidate chunk fetch from Neon for full text/metadata.
-- Cross-encoder reranking via local reranker service.
-- Threshold filtering before context assembly.
-
-### Validation mechanics
-- NLI service scores contradiction between context (premise) and answer (hypothesis).
-- High contradiction blocks answer with a safe failure message.
-- Guardrails length validator enforces practical response size.
-
-### Fallback behavior
-If model returns “not found in knowledge base”, the engine performs DuckDuckGo web search and summarizes findings while labeling them as external.
-
----
-
-## 8) Frontend Interaction & UX Workflow
-
-Frontend behavior:
-
-- Uses `/api/query` route as server-side proxy to `llm-engine`.
-- Maintains multi-turn history and sends prior turns for context.
-- Stores non-loading chat blocks in `localStorage`.
-- Displays markdown answers, source snippets, and separate image panel.
-
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant FE as Next.js UI
-  participant API as /api/query
-  participant LLM as llm-engine
-
-  U->>FE: enter prompt
-  FE->>API: POST query + history
-  API->>LLM: POST /query
-  LLM-->>API: answer + sources + images
-  API-->>FE: JSON response
-  FE-->>U: render terminal block + images panel
-```
-
----
-
-## 9) Reliability, Error Handling, and Retry Strategy
-
-Cross-cutting reliability patterns:
-
-- HTTP clients with retry adapters (`429/5xx` backoff).
-- Stage-level “safe record” analytics writes wrapped to avoid cascading failures.
-- Multi-attempt sink writes in processors.
-- Retry job to recover partial indexing failures.
-- Fallback responses in query path when dependencies are unavailable.
-
-Current notable operational caveats observed from implementation:
-
-- Broad `except Exception` patterns suppress detailed error diagnostics across many services.
-- Some endpoints return `None` on failure (can produce ambiguous HTTP behavior).
-- In `page_processor` cron mode, `upsert_neon_images(...)` is called with an unexpected extra positional argument, which likely causes image-step failure and continuous retries.
-
----
-
-## 10) Security & Configuration Surface
-
-Primary env-driven integration keys/URLs:
-
-- Confluence: base URL, auth user, API token, optional ancestor/space filters.
-- Neon: `NEON_DB_URL`.
-- Pinecone: `PINECONE_API_KEY`.
-- LLM: `GROQ_API_KEY`, `GROQ_MODEL`.
-- Service-to-service: `NLI_URL`, `RERANKER_URL`, `PAGE_INDEXER_URL`.
-
-Operational guidance:
-
-- Secrets should be supplied via `.env` and Docker secret mount (`guardrails_token`).
-- Least-privilege DB and API tokens recommended.
-
----
-
-## 11) End-to-End Lifecycle (from Confluence to Answer)
-
-```mermaid
-flowchart TB
-  C1[Confluence page created/updated] --> I1[page-indexer writes kb_pages + kb-pages index]
-  I1 --> P1[page marked stashed]
-  P1 --> P2[page_processor extracts/chunks/embeds]
-  P2 --> S1[kb_chunks + kb_images in Neon]
-  P2 --> S2[kb-chunks + kb-images in Pinecone]
-  U1[User query in frontend] --> Q1[llm-engine retrieve + generate + validate]
-  S1 --> Q1
-  S2 --> Q1
-  Q1 --> U2[Grounded answer + sources + images]
-  Q1 --> A1[Analytics in ClickHouse]
-```
-
----
-
-## 12) System Boundaries and Ownership Suggestions
-
-Suggested ownership boundaries (for scaling engineering teams):
-
-- **Ingestion team**: page-indexer + trigger/retry jobs.
-- **Knowledge processing team**: page_processor + extractors + embedding strategy.
-- **AI runtime team**: llm_engine + NLI/reranker orchestration + safety controls.
-- **Product team**: frontend interaction and UX.
-- **Platform team**: Docker topology, ClickHouse/Metabase observability.
-
-This split mirrors existing service seams and minimizes coupling.
-
----
-
-## 13) Suggested Next Design Improvements
-
-1. Introduce typed error envelopes and structured logs (trace_id across all calls).
-2. Replace broad `except` with classified exceptions + metrics dimensions.
-3. Add schema migrations and explicit DB DDL docs for Neon tables.
-4. Add health/readiness probes for all services and model warmup checks.
-5. Add integration tests for pipeline contracts (indexing state, retry, rag flow).
-6. Fix cron processor neon image call signature mismatch and add regression test.
-7. Add message queue/event bus for decoupled ingestion and processing throughput control.
+- I design end-to-end systems with clear service boundaries and failure recovery.
+- I balance model quality with runtime pragmatism (hybrid retrieval + rerank + validation).
+- I build for operations from day one (stage metrics, pipeline metrics, dashboard-ready schema).
+- I optimize for product reality: evolving docs, stale data handling, and trustworthy answers.
