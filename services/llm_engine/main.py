@@ -531,7 +531,7 @@ def retrieve_node(state: AgentState):
         chunks_index = indexes["chunks"]
         pages_index = indexes["pages"]
 
-        TOP_K_CHUNKS = 15
+        TOP_K_CHUNKS = 20
         TOP_K_PAGES = 20
         FINAL_TOP_K = 10
         W_CHUNK = 0.7
@@ -578,8 +578,10 @@ def retrieve_node(state: AgentState):
             safe_record_stage(trace_id, stage_name, "failure", start)
             return {"top_chunks": None, "context": None}
 
+        top_fused = sorted(fused, key=lambda x: x["fused_score"], reverse=True)[:15]
         rerank_scores = call_reranker(
-            state["query"], [f["text"] for f in fused]
+            state["query"],
+            [f["text"] for f in top_fused]
         )
         if not rerank_scores:
             log("retrieve_node no rerank_scores")
@@ -588,15 +590,15 @@ def retrieve_node(state: AgentState):
 
         ALPHA = 0.7
 
-        for item, score in zip(fused, rerank_scores):
+        for item, score in zip(top_fused, rerank_scores):
             item["rerank_score"] = score
             item["final_score"] = (
                 ALPHA * score +
                 (1 - ALPHA) * item["fused_score"]
             )
 
-        fused.sort(key=lambda x: x["final_score"], reverse=True)
-        top_chunks = fused[:FINAL_TOP_K]
+        top_fused.sort(key=lambda x: x["final_score"], reverse=True)
+        top_chunks = top_fused[:FINAL_TOP_K]
         
         filtered = [f for f in top_chunks if f["final_score"] >= THRESHOLD]
 
