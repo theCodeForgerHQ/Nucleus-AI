@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+import json
 import uuid
 from common.utils import get_env, get_db_conn, get_pinecone_client
 import time
@@ -15,6 +16,7 @@ from guardrails.hub import ValidLength
 from common.analytics import record_query_result
 from langgraph.graph import StateGraph, END
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 length_guard = Guard().use(
@@ -934,3 +936,536 @@ def run_query(req: QueryRequest):
 
     finally:
         conn.close()
+
+
+# ── SSE helpers ──────────────────────────────────────────────────────
+
+def sse_event(event_type: str, data: dict) -> str:
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+
+GENERAL_REPLY_SYSTEM_PROMPT = (
+    "You are a helpful internal knowledge assistant for Google. "
+    "Greet the user or respond to their query politely and conversationally. "
+    "Use a natural, friendly tone — avoid sounding scripted or repetitive. "
+    "Respond in a natural, conversational tone. When it makes sense, "
+    "continue the conversation with a relevant and engaging follow-up question "
+    "related to Alphabet, Google products, or company updates."
+)
+
+
+@app.post("/query/stream")
+def stream_query_endpoint(req: QueryRequest):
+    """SSE streaming endpoint – emits step/branch/steps/result/done events."""
+
+    def generate():
+        trace_id = str(uuid.uuid4())
+        start_total = time.time()
+
+        conn = get_db_conn()
+        if not conn:
+            yield sse_event("result", {
+                "query": req.query,
+                "answer": "Database unavailable. Please try again later.",
+                "sources": [], "images": [],
+            })
+            yield sse_event("done", {})
+            return
+
+        try:
+            indexes = app.state.indexes
+
+            # ── 1. Intent Classification ────────────────────────────────
+            yield sse_event("step", {
+                "id": "intent_classifier",
+                "label": "Classifying intent",
+                "status": "in_progress",
+            })
+
+            start = time.time()
+            intent = classify_intent(req.query)
+            safe_record_stage(
+                trace_id, "intent_router",
+                "success" if intent else "failure", start,
+            )
+
+            if not intent:
+                intent = "general"
+
+            branch_label = (
+                "Knowledge Base" if intent == "knowledge" else "General Reply"
+            )
+            yield sse_event("step", {
+                "id": "intent_classifier",
+                "label": "Classifying intent",
+                "status": "done",
+                "result": branch_label,
+            })
+
+            # ── 2a. General Reply branch ────────────────────────────────
+            if intent == "general":
+                yield sse_event("branch", {"name": "General Reply"})
+                yield sse_event("steps", {"steps": [
+                    {"id": "general_reply", "label": "Generating reply"},
+                ]})
+                yield sse_event("step", {
+                    "id": "general_reply",
+                    "label": "Generating reply",
+                    "status": "in_progress",
+                })
+
+                start = time.time()
+                groq_model = get_env("GROQ_MODEL")
+                answer = None
+
+                if groq_model:
+                    messages = [
+                        {"role": "system", "content": GENERAL_REPLY_SYSTEM_PROMPT},
+                    ]
+                    if req.history:
+                        messages.extend(req.history)
+                    messages.append({"role": "user", "content": req.query})
+
+                    try:
+                        resp = groq_client.chat.completions.create(
+                            model=groq_model,
+                            messages=messages,
+                            temperature=0.7,
+                            max_tokens=400,
+                        )
+                        if resp.choices:
+                            answer = resp.choices[0].message.content
+                    except Exception as exc:
+                        log(f"stream general_reply error={exc}")
+
+                safe_record_stage(
+                    trace_id, "general_reply",
+                    "success" if answer else "failure", start,
+                )
+                yield sse_event("step", {
+                    "id": "general_reply",
+                    "label": "Generating reply",
+                    "status": "done" if answer else "failed",
+                })
+
+                if not answer:
+                    answer = "There was some issue processing your request. Please try again later."
+
+                try:
+                    record_query_result(
+                        trace_id=trace_id, query=req.query,
+                        final_status="success", top_k_chunks=0,
+                        context_chars=0, answer_chars=len(answer),
+                        contradiction_score=0.0,
+                        total_latency_ms=int((time.time() - start_total) * 1000),
+                    )
+                except Exception:
+                    pass
+
+                yield sse_event("result", {
+                    "query": req.query, "answer": answer,
+                    "sources": [], "images": [],
+                })
+                yield sse_event("done", {})
+                return
+
+            # ── 2b. Knowledge Base branch ───────────────────────────────
+            yield sse_event("branch", {"name": "Knowledge Base"})
+            yield sse_event("steps", {"steps": [
+                {"id": "retrieve", "label": "Searching & reranking"},
+                {"id": "generate", "label": "Generating answer"},
+                {"id": "validate", "label": "Validating response"},
+            ]})
+
+            # ── 3. Retrieve ─────────────────────────────────────────────
+            yield sse_event("step", {
+                "id": "retrieve",
+                "label": "Searching & reranking",
+                "status": "in_progress",
+            })
+
+            start = time.time()
+            top_chunks = None
+            context = None
+            retrieval_failed = False
+
+            THRESHOLD = 0.6
+            TOP_K_CHUNKS = 20
+            TOP_K_PAGES = 20
+            FINAL_TOP_K = 10
+            W_CHUNK = 0.7
+            W_PAGE = 0.3
+
+            try:
+                if not indexes:
+                    retrieval_failed = True
+                else:
+                    chunks_index = indexes["chunks"]
+                    pages_index = indexes["pages"]
+
+                    chunk_scores = search_with_text(
+                        chunks_index, req.query, TOP_K_CHUNKS,
+                    )
+                    if not chunk_scores:
+                        retrieval_failed = True
+                    else:
+                        page_scores = (
+                            search_with_text(pages_index, req.query, TOP_K_PAGES) or {}
+                        )
+                        chunk_metadata = fetch_chunks_from_neon(
+                            conn, list(chunk_scores.keys()),
+                        )
+
+                        if not chunk_metadata:
+                            retrieval_failed = True
+                        else:
+                            fused = []
+                            for cid, cscore in chunk_scores.items():
+                                meta = chunk_metadata.get(cid)
+                                if not meta:
+                                    continue
+                                pscore = page_scores.get(str(meta["page_id"]), 0.0)
+                                fused.append({
+                                    "chunk_id": cid,
+                                    "page_id": meta["page_id"],
+                                    "section": meta["section"],
+                                    "text": meta["text"],
+                                    "is_active": meta["is_active"],
+                                    "fused_score": W_CHUNK * cscore + W_PAGE * pscore,
+                                })
+
+                            if not fused:
+                                retrieval_failed = True
+                            else:
+                                top_fused = sorted(
+                                    fused, key=lambda x: x["fused_score"],
+                                    reverse=True,
+                                )[:15]
+                                rerank_scores = call_reranker(
+                                    req.query,
+                                    [f["text"] for f in top_fused],
+                                )
+
+                                if not rerank_scores:
+                                    retrieval_failed = True
+                                else:
+                                    ALPHA = 0.7
+                                    for item, sc in zip(top_fused, rerank_scores):
+                                        item["rerank_score"] = sc
+                                        item["final_score"] = (
+                                            ALPHA * sc
+                                            + (1 - ALPHA) * item["fused_score"]
+                                        )
+                                    top_fused.sort(
+                                        key=lambda x: x["final_score"],
+                                        reverse=True,
+                                    )
+                                    filtered = [
+                                        f for f in top_fused[:FINAL_TOP_K]
+                                        if f["final_score"] >= THRESHOLD
+                                    ]
+                                    if not filtered:
+                                        retrieval_failed = True
+                                    else:
+                                        context = build_context(filtered)
+                                        if context is None:
+                                            retrieval_failed = True
+                                        else:
+                                            top_chunks = filtered
+            except Exception as exc:
+                log(f"stream retrieve error={exc}")
+                retrieval_failed = True
+
+            safe_record_stage(
+                trace_id, "retrieve",
+                "failure" if retrieval_failed else "success", start,
+            )
+
+            # ── Retrieval failed → web search fallback ──────────────────
+            if retrieval_failed:
+                yield sse_event("step", {
+                    "id": "retrieve",
+                    "label": "Searching & reranking",
+                    "status": "failed",
+                })
+                yield sse_event("steps", {"steps": [
+                    {"id": "web_fallback", "label": "Searching the web"},
+                ]})
+                yield sse_event("step", {
+                    "id": "web_fallback",
+                    "label": "Searching the web",
+                    "status": "in_progress",
+                })
+
+                start = time.time()
+                web_answer = call_web_search_fallback(req.query)
+                safe_record_stage(
+                    trace_id, "web_fallback",
+                    "success" if web_answer else "failure", start,
+                )
+
+                yield sse_event("step", {
+                    "id": "web_fallback",
+                    "label": "Searching the web",
+                    "status": "done" if web_answer else "failed",
+                })
+
+                if not web_answer:
+                    web_answer = (
+                        "There was some issue processing your request. "
+                        "Please try again later."
+                    )
+
+                try:
+                    record_query_result(
+                        trace_id=trace_id, query=req.query,
+                        final_status="web_fallback", top_k_chunks=0,
+                        context_chars=0, answer_chars=len(web_answer),
+                        contradiction_score=0.0,
+                        total_latency_ms=int(
+                            (time.time() - start_total) * 1000
+                        ),
+                    )
+                except Exception:
+                    pass
+
+                yield sse_event("result", {
+                    "query": req.query, "answer": web_answer,
+                    "sources": [], "images": [],
+                })
+                yield sse_event("done", {})
+                return
+
+            yield sse_event("step", {
+                "id": "retrieve",
+                "label": "Searching & reranking",
+                "status": "done",
+            })
+
+            # ── 4. Generate ─────────────────────────────────────────────
+            yield sse_event("step", {
+                "id": "generate",
+                "label": "Generating answer",
+                "status": "in_progress",
+            })
+
+            start = time.time()
+            with ThreadPoolExecutor() as executor:
+                llm_future = executor.submit(
+                    call_groq_llm, req.query, context, req.history,
+                )
+                image_future = executor.submit(
+                    get_images, indexes["images"], req.query, context,
+                )
+                answer = llm_future.result()
+                images = image_future.result()
+
+            web_findings = None
+            if answer and "not found in knowledge base" in answer.lower():
+                log("stream triggering web_search_fallback from generation")
+                web_findings = call_web_search_fallback(req.query)
+
+            safe_record_stage(
+                trace_id, "generation",
+                "success" if answer else "failure", start,
+            )
+
+            # Generation failed → web search fallback
+            if not answer:
+                yield sse_event("step", {
+                    "id": "generate",
+                    "label": "Generating answer",
+                    "status": "failed",
+                })
+                yield sse_event("steps", {"steps": [
+                    {"id": "web_fallback", "label": "Searching the web"},
+                ]})
+                yield sse_event("step", {
+                    "id": "web_fallback",
+                    "label": "Searching the web",
+                    "status": "in_progress",
+                })
+
+                start = time.time()
+                web_answer = call_web_search_fallback(req.query)
+                safe_record_stage(
+                    trace_id, "web_fallback",
+                    "success" if web_answer else "failure", start,
+                )
+                yield sse_event("step", {
+                    "id": "web_fallback",
+                    "label": "Searching the web",
+                    "status": "done" if web_answer else "failed",
+                })
+
+                if not web_answer:
+                    web_answer = (
+                        "There was some issue processing your request. "
+                        "Please try again later."
+                    )
+
+                try:
+                    record_query_result(
+                        trace_id=trace_id, query=req.query,
+                        final_status="web_fallback",
+                        top_k_chunks=len(top_chunks) if top_chunks else 0,
+                        context_chars=len(context) if context else 0,
+                        answer_chars=len(web_answer),
+                        contradiction_score=0.0,
+                        total_latency_ms=int(
+                            (time.time() - start_total) * 1000
+                        ),
+                    )
+                except Exception:
+                    pass
+
+                yield sse_event("result", {
+                    "query": req.query, "answer": web_answer,
+                    "sources": [], "images": [],
+                })
+                yield sse_event("done", {})
+                return
+
+            yield sse_event("step", {
+                "id": "generate",
+                "label": "Generating answer",
+                "status": "done",
+            })
+
+            # If web findings were used, swap the answer
+            if web_findings:
+                answer = web_findings
+
+            # ── 5. Validate ─────────────────────────────────────────────
+            yield sse_event("step", {
+                "id": "validate",
+                "label": "Validating response",
+                "status": "in_progress",
+            })
+
+            start = time.time()
+            NLI_CONTRADICTION_THRESHOLD = 0.7
+            contradiction_score = 0.0
+
+            if not web_findings and context:
+                nli = call_nli(context, answer)
+                if nli:
+                    contradiction_score = nli.get("contradiction", 0.0)
+                    if contradiction_score >= NLI_CONTRADICTION_THRESHOLD:
+                        safe_record_stage(
+                            trace_id, "validation", "success", start,
+                        )
+                        yield sse_event("step", {
+                            "id": "validate",
+                            "label": "Validating response",
+                            "status": "done",
+                        })
+                        try:
+                            record_query_result(
+                                trace_id=trace_id, query=req.query,
+                                final_status="contradicted",
+                                top_k_chunks=len(top_chunks) if top_chunks else 0,
+                                context_chars=len(context) if context else 0,
+                                answer_chars=0,
+                                contradiction_score=contradiction_score,
+                                total_latency_ms=int(
+                                    (time.time() - start_total) * 1000
+                                ),
+                            )
+                        except Exception:
+                            pass
+                        yield sse_event("result", {
+                            "query": req.query,
+                            "answer": "LLM response contradicted the knowledge base.",
+                            "sources": [], "images": [],
+                        })
+                        yield sse_event("done", {})
+                        return
+
+            if not validate_answer_length(answer):
+                safe_record_stage(trace_id, "validation", "success", start)
+                yield sse_event("step", {
+                    "id": "validate",
+                    "label": "Validating response",
+                    "status": "done",
+                })
+                try:
+                    record_query_result(
+                        trace_id=trace_id, query=req.query,
+                        final_status="no_answer",
+                        top_k_chunks=len(top_chunks) if top_chunks else 0,
+                        context_chars=len(context) if context else 0,
+                        answer_chars=0,
+                        contradiction_score=contradiction_score,
+                        total_latency_ms=int(
+                            (time.time() - start_total) * 1000
+                        ),
+                    )
+                except Exception:
+                    pass
+                yield sse_event("result", {
+                    "query": req.query,
+                    "answer": "Invalid LLM output.",
+                    "sources": [], "images": [],
+                })
+                yield sse_event("done", {})
+                return
+
+            sources = [
+                {
+                    "page_id": c["page_id"],
+                    "section": c["section"],
+                    "text": c["text"],
+                }
+                for c in (top_chunks or [])
+            ]
+
+            safe_record_stage(trace_id, "validation", "success", start)
+            yield sse_event("step", {
+                "id": "validate",
+                "label": "Validating response",
+                "status": "done",
+            })
+
+            try:
+                record_query_result(
+                    trace_id=trace_id, query=req.query,
+                    final_status="success",
+                    top_k_chunks=len(top_chunks) if top_chunks else 0,
+                    context_chars=len(context) if context else 0,
+                    answer_chars=len(answer),
+                    contradiction_score=contradiction_score,
+                    total_latency_ms=int(
+                        (time.time() - start_total) * 1000
+                    ),
+                )
+            except Exception:
+                pass
+
+            yield sse_event("result", {
+                "query": req.query, "answer": answer,
+                "sources": sources, "images": images or [],
+            })
+            yield sse_event("done", {})
+
+        except Exception as exc:
+            log(f"stream_query error={exc}")
+            yield sse_event("result", {
+                "query": req.query,
+                "answer": "There was some issue processing your request. "
+                          "Please try again later.",
+                "sources": [], "images": [],
+            })
+            yield sse_event("done", {})
+        finally:
+            conn.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

@@ -1,22 +1,35 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { postQuery, type QueryResponse, type HistoryMessage } from "@/lib/api";
+import {
+  postQueryStream,
+  type QueryResponse,
+  type HistoryMessage,
+  type ThinkingStep,
+  type StreamEvent,
+} from "@/lib/api";
 import { TerminalBlock } from "@/components/TerminalBlock";
 import {
   TerminalInput,
   type TerminalInputHandle,
 } from "@/components/TerminalInput";
 import { ImagesPanel } from "@/components/ImagesPanel";
+
 const STORAGE_KEY = "nucleus-ai-chat-blocks";
+
 type Block = {
   id: string;
   prompt: string;
   response: QueryResponse | null;
   isLoading: boolean;
+  thinkingSteps: ThinkingStep[];
+  branch: string | null;
+  thinkingDurationMs: number | null;
 };
+
 function nextId() {
   return Math.random().toString(36).slice(2, 12);
 }
+
 function loadBlocksFromStorage(): Block[] {
   if (typeof window === "undefined") return [];
   try {
@@ -26,30 +39,46 @@ function loadBlocksFromStorage(): Block[] {
       id: string;
       prompt: string;
       response: QueryResponse;
+      thinkingSteps?: ThinkingStep[];
+      branch?: string | null;
+      thinkingDurationMs?: number | null;
     }[];
     return parsed.map((b) => ({
       id: b.id,
       prompt: b.prompt,
       response: b.response,
       isLoading: false,
+      thinkingSteps: b.thinkingSteps || [],
+      branch: b.branch || null,
+      thinkingDurationMs: b.thinkingDurationMs || null,
     }));
   } catch {
     return [];
   }
 }
+
 function saveBlocksToStorage(blocks: Block[]) {
   try {
     const toSave = blocks
       .filter((b) => b.response !== null)
-      .map((b) => ({ id: b.id, prompt: b.prompt, response: b.response! }));
+      .map((b) => ({
+        id: b.id,
+        prompt: b.prompt,
+        response: b.response!,
+        thinkingSteps: b.thinkingSteps,
+        branch: b.branch,
+        thinkingDurationMs: b.thinkingDurationMs,
+      }));
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch {}
 }
+
 function clearStorage() {
   try {
     window.localStorage.removeItem(STORAGE_KEY);
   } catch {}
 }
+
 const SendArrowIcon = () => (
   <svg
     width="22"
@@ -64,6 +93,7 @@ const SendArrowIcon = () => (
     <path d="M5 12L19 5L12 19L10 14L5 12Z" />
   </svg>
 );
+
 export default function Home() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [input, setInput] = useState("");
@@ -80,11 +110,14 @@ export default function Home() {
   const inputRef = useRef<TerminalInputHandle | null>(null);
   const hasHydratedRef = useRef(false);
   const didInitialScrollRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   const ARROW_LAUNCH_MS = 550;
+
   useEffect(() => {
     const loaded = loadBlocksFromStorage();
     setBlocks(loaded);
   }, []);
+
   useEffect(() => {
     if (!hasHydratedRef.current) {
       hasHydratedRef.current = true;
@@ -92,6 +125,7 @@ export default function Home() {
     }
     saveBlocksToStorage(blocks);
   }, [blocks]);
+
   useEffect(() => {
     if (
       blocks.length > 0 &&
@@ -102,24 +136,59 @@ export default function Home() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [blocks.length]);
+
   useEffect(() => {
     if (!sendAnimating) return;
     const t = setTimeout(() => setSendAnimating(false), ARROW_LAUNCH_MS);
     return () => clearTimeout(t);
   }, [sendAnimating]);
+
   useEffect(() => {
     if (loading) return;
     setArrowEntering(true);
     const t = setTimeout(() => setArrowEntering(false), 50);
     return () => clearTimeout(t);
   }, [loading]);
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior,
-    });
-  }, []);
+
+  // ── Auto-scroll during streaming / typing ──
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const lastBlock = blocks[blocks.length - 1];
+    if (!lastBlock) return;
+
+    // Active while loading OR while response just arrived (typing animation)
+    if (!lastBlock.isLoading && !lastBlock.response) return;
+
+    const interval = setInterval(() => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distFromBottom < 150) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }, 80);
+
+    // Stop after 30s max (covers longest typing animations)
+    const timeout = setTimeout(() => clearInterval(interval), 30000);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [blocks]);
+
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
+      scrollRef.current?.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior,
+      });
+    },
+    [],
+  );
+
   const handleNewChat = useCallback(() => {
+    abortRef.current?.abort();
     setBlocks([]);
     setError(null);
     setLoading(false);
@@ -128,6 +197,7 @@ export default function Home() {
     didInitialScrollRef.current = false;
     setTimeout(() => inputRef.current?.focus(), 0);
   }, []);
+
   const buildHistory = useCallback((): HistoryMessage[] => {
     const out: HistoryMessage[] = [];
     for (const b of blocks) {
@@ -138,6 +208,7 @@ export default function Home() {
     }
     return out;
   }, [blocks]);
+
   const sendPrompt = useCallback(
     async (q: string) => {
       if (!q.trim() || loading) return;
@@ -145,21 +216,111 @@ export default function Home() {
       setInput("");
       setError(null);
       const id = nextId();
+      const thinkingStartedAt = Date.now();
+
       setBlocks((prev) => [
         ...prev,
-        { id, prompt: q, response: null, isLoading: true },
+        {
+          id,
+          prompt: q,
+          response: null,
+          isLoading: true,
+          thinkingSteps: [],
+          branch: null,
+          thinkingDurationMs: null,
+        },
       ]);
       setLoading(true);
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       try {
         const history = buildHistory();
-        const res = await postQuery(q, history);
-        setBlocks((prev) =>
-          prev.map((b) =>
-            b.id === id ? { ...b, response: res, isLoading: false } : b,
-          ),
+        let gotResult = false;
+
+        await postQueryStream(
+          q,
+          history,
+          (event: StreamEvent) => {
+            if (event.type === "step") {
+              setBlocks((prev) =>
+                prev.map((b) => {
+                  if (b.id !== id) return b;
+                  const steps = [...b.thinkingSteps];
+                  const idx = steps.findIndex((s) => s.id === event.data.id);
+                  if (idx >= 0) {
+                    steps[idx] = { ...steps[idx], ...event.data };
+                  } else {
+                    steps.push(event.data as ThinkingStep);
+                  }
+                  return { ...b, thinkingSteps: steps };
+                }),
+              );
+            } else if (event.type === "branch") {
+              setBlocks((prev) =>
+                prev.map((b) =>
+                  b.id === id ? { ...b, branch: event.data.name } : b,
+                ),
+              );
+            } else if (event.type === "steps") {
+              setBlocks((prev) =>
+                prev.map((b) => {
+                  if (b.id !== id) return b;
+                  const steps = [...b.thinkingSteps];
+                  for (const s of event.data.steps) {
+                    if (!steps.find((e) => e.id === s.id)) {
+                      steps.push({
+                        id: s.id,
+                        label: s.label,
+                        status: "pending",
+                      });
+                    }
+                  }
+                  return { ...b, thinkingSteps: steps };
+                }),
+              );
+            } else if (event.type === "result") {
+              gotResult = true;
+              const durationMs = Date.now() - thinkingStartedAt;
+              setBlocks((prev) =>
+                prev.map((b) =>
+                  b.id === id
+                    ? {
+                        ...b,
+                        response: event.data as QueryResponse,
+                        isLoading: false,
+                        thinkingDurationMs: durationMs,
+                      }
+                    : b,
+                ),
+              );
+            }
+          },
+          controller.signal,
         );
-        setTimeout(() => scrollToBottom("smooth"), 50);
+
+        if (!gotResult) {
+          setBlocks((prev) =>
+            prev.map((b) =>
+              b.id === id
+                ? {
+                    ...b,
+                    isLoading: false,
+                    response: {
+                      query: q,
+                      answer: "Connection lost. Please try again.",
+                      sources: [],
+                      images: [],
+                    },
+                  }
+                : b,
+            ),
+          );
+        }
       } catch (e) {
+        if (e instanceof Error && e.name === "AbortError") return;
         const message = e instanceof Error ? e.message : "Request failed";
         setError(message);
         setBlocks((prev) =>
@@ -178,18 +339,19 @@ export default function Home() {
               : b,
           ),
         );
-        setTimeout(() => scrollToBottom("smooth"), 50);
       } finally {
         setLoading(false);
       }
     },
-    [loading, buildHistory, scrollToBottom],
+    [loading, buildHistory],
   );
+
   const handleSubmit = useCallback(async () => {
     const q = input.trim();
     if (!q || loading) return;
     await sendPrompt(q);
   }, [input, loading, sendPrompt]);
+
   const goldenQuestions = [
     "When was Alphabet Inc. founded and why was it created?",
     "Who are the founders of Google?",
@@ -197,6 +359,7 @@ export default function Home() {
     "What is the relationship between Google and Alphabet Inc.?",
     "Where is Alphabet Inc. headquartered?",
   ];
+
   const handleGoldenEdit = (q: string) => {
     setInput(q);
   };
@@ -204,7 +367,9 @@ export default function Home() {
     setInput(q);
     sendPrompt(q);
   };
+
   const hasConversation = blocks.length > 0;
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -215,6 +380,7 @@ export default function Home() {
     el.addEventListener("scroll", handleScroll, { passive: true });
     return () => el.removeEventListener("scroll", handleScroll);
   }, []);
+
   useEffect(() => {
     if (blocks.length > 0) {
       setActiveBlockIndex(blocks.length - 1);
@@ -222,6 +388,7 @@ export default function Home() {
     ratioRef.current = new Array(blocks.length).fill(0);
     blockRefs.current = blockRefs.current.slice(0, blocks.length);
   }, [blocks.length]);
+
   useEffect(() => {
     const root = scrollRef.current;
     if (!root || blocks.length === 0) return;
@@ -252,6 +419,7 @@ export default function Home() {
       .forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, [blocks.length]);
+
   const sidebarImagesWithBlock: {
     url: string;
     page_id: string;
@@ -263,6 +431,7 @@ export default function Home() {
       sidebarImagesWithBlock.push({ ...img, blockIndex: i });
     });
   });
+
   return (
     <div className="flex flex-col h-screen min-h-0">
       <header className="shrink-0 min-h-9 flex items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-warp-border bg-black">
@@ -338,6 +507,9 @@ export default function Home() {
                       prompt={block.prompt}
                       response={block.response}
                       isLoading={block.isLoading}
+                      thinkingSteps={block.thinkingSteps}
+                      branch={block.branch}
+                      thinkingDurationMs={block.thinkingDurationMs}
                       onScrollToImages={() => setActiveBlockIndex(i)}
                     />
                   </div>

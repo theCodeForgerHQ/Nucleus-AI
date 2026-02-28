@@ -115,3 +115,64 @@ body {
 * {
   scrollbar-width: none;
 }
+
+/* ── Thinking panel animations ── */
+
+/* Spinner for in-progress steps */
+.thinking-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--warp-border);
+  border-top-color: var(--warp-accent);
+  border-radius: 50%;
+  animation: thinking-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes thinking-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Pulsating dots for "Thinking..." label */
+.thinking-dots span {
+  animation: thinking-dot-pulse 1.4s ease-in-out infinite;
+}
+.thinking-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.thinking-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes thinking-dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* Pulsating progress bar (collapsed state during loading) */
+.thinking-progress {
+  animation: thinking-bar-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes thinking-bar-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scaleX(0.6);
+    transform-origin: left;
+  }
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+}
