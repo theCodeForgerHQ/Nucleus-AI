@@ -30,8 +30,6 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    ports:
-      - "8000:8000"
 
   page-indexer-trigger:
     <<: *public_dns
@@ -92,8 +90,6 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    ports:
-      - "8080:8000"
 
   llm-engine:
     <<: *public_dns
@@ -108,8 +104,6 @@ services:
       NLI_URL: http://nli-service:8000/nli
       RERANKER_URL: http://reranker-service:8000/rerank
     restart: unless-stopped
-    ports:
-      - "8200:8000"
 
   reranker-service:
     <<: *public_dns
@@ -119,8 +113,6 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    ports:
-      - "8090:8000"
 
   frontend:
     <<: *public_dns
@@ -128,7 +120,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
-      NEXT_PUBLIC_LLM_ENGINE_URL: http://llm-engine:8000
+      INTERNAL_LLM_ENGINE_URL: http://llm-engine:8000
     restart: unless-stopped
     ports:
       - "3001:3000"

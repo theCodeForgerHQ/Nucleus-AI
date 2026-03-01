@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const LLM_ENGINE_URL =
-  process.env.NEXT_PUBLIC_LLM_ENGINE_URL || "http://localhost:8200";
+  process.env.INTERNAL_LLM_ENGINE_URL || "http://localhost:8200";
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: request.signal,
     });
 
     if (!backendRes.ok) {

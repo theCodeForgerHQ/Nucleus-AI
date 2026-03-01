@@ -69,12 +69,25 @@ export function ImagesPanel({
   );
 }
 
+function sanitizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.protocol === "javascript:" || parsed.protocol === "data:" || parsed.protocol === "vbscript:") {
+      return "about:blank";
+    }
+    return url;
+  } catch {
+    return "about:blank";
+  }
+}
+
 function ImageCard({ img }: { img: ImageWithBlock }) {
   const [loaded, setLoaded] = useState(false);
+  const safeUrl = sanitizeUrl(img.url);
 
   return (
     <a
-      href={img.url}
+      href={safeUrl}
       target="_blank"
       rel="noopener noreferrer"
       className="block rounded border border-warp-border overflow-hidden hover:border-warp-accent shrink-0 group"
@@ -87,7 +100,7 @@ function ImageCard({ img }: { img: ImageWithBlock }) {
           />
         )}
         <img
-          src={img.url}
+          src={safeUrl}
           alt={img.caption || "Source"}
           className={`max-w-full w-auto h-auto object-contain transition-opacity duration-300 ${
             loaded ? "opacity-100" : "opacity-0"

@@ -41,6 +41,7 @@ OpenAI = promptlayer_client.openai.OpenAI
 groq_client = OpenAI(
     api_key=get_env("GROQ_API_KEY"),
     base_url="https://api.groq.com/openai/v1",
+    timeout=30.0,
 )
 
 def safe_record_stage(trace_id, stage_name, status, start):
@@ -139,13 +140,13 @@ def call_reranker(query, texts):
         reranker_url = get_env("RERANKER_URL")
         if not reranker_url:
             log("call_reranker missing RERANKER_URL")
-            return None
+            raise ValueError("Missing RERANKER_URL")
 
         log(f"call_reranker start n_texts={len(texts)}")
         r = http_session.post(
             reranker_url,
             json={"query": query, "texts": texts},
-            timeout=120,
+            timeout=10.0,
         )
         r.raise_for_status()
         scores = r.json()["scores"]
@@ -153,7 +154,7 @@ def call_reranker(query, texts):
         return scores
     except Exception as exc:
         log(f"call_reranker error={exc}")
-        return None
+        raise
 
 def build_context(chunks):
     try:
@@ -244,13 +245,13 @@ def call_nli(premise, hypothesis):
 
         if not nli_url:
             log("call_nli missing NLI_URL")
-            return None
-        
+            raise ValueError("Missing NLI_URL")
+
         log("call_nli start")
         r = http_session.post(
             nli_url,
             json={"premise": premise, "hypothesis": hypothesis},
-            timeout=60,
+            timeout=10.0,
         )
         r.raise_for_status()
         result = r.json()
@@ -258,7 +259,7 @@ def call_nli(premise, hypothesis):
         return result
     except Exception as exc:
         log(f"call_nli error={exc}")
-        return None
+        raise
 
 def call_web_search_fallback(query):
     try:
@@ -303,9 +304,9 @@ def validate_answer_length(answer):
 
 def classify_intent(query):
     try:
-        groq_model = get_env("GROQ_MODEL")
+        groq_model = get_env("GROQ_INTENT_MODEL")
         if groq_model is None:
-            log("classify_intent missing GROQ_MODEL")
+            log("classify_intent missing GROQ_INTENT_MODEL")
             return None
 
         prompt = f"""
@@ -858,8 +859,8 @@ rag_app = workflow.compile()
 app = FastAPI()
 
 class QueryRequest(BaseModel):
-    query: str
-    history: List[Dict[str, str]] = Field(default_factory=list)
+    query: str = Field(..., max_length=1000)
+    history: List[Dict[str, str]] = Field(default_factory=list, max_items=20)
 
 @app.on_event("startup")
 def startup():

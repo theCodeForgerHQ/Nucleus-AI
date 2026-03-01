@@ -24,17 +24,30 @@ export type StreamEvent =
 export async function postQuery(
   query: string,
   history: HistoryMessage[] = [],
+  signal?: AbortSignal,
 ): Promise<QueryResponse> {
-  const res = await fetch("/api/query", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, history }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || data.detail || `Query failed: ${res.status}`);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, controller.signal])
+    : controller.signal;
+
+  try {
+    const res = await fetch("/api/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, history }),
+      signal: combinedSignal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || data.detail || `Query failed: ${res.status}`);
+    }
+    return data as QueryResponse;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return data as QueryResponse;
 }
 
 export async function postQueryStream(
@@ -43,54 +56,70 @@ export async function postQueryStream(
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch("/api/query/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, history }),
-    signal,
-  });
+  const controller = new AbortController();
+  let timeoutId = setTimeout(() => controller.abort(), 60000);
 
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || data.detail || `Query failed: ${res.status}`);
-  }
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, controller.signal])
+    : controller.signal;
 
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  try {
+    const res = await fetch("/api/query/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, history }),
+      signal: combinedSignal,
+    });
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || data.detail || `Query failed: ${res.status}`);
+    }
 
-    buffer += decoder.decode(value, { stream: true });
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-    // SSE events are separated by double newlines
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() || "";
+    while (true) {
+      const { done, value } = await reader.read();
 
-    for (const part of parts) {
-      if (!part.trim()) continue;
+      // Reset timeout on each chunk received
+      clearTimeout(timeoutId);
+      if (done) break;
+      timeoutId = setTimeout(() => controller.abort(), 60000);
 
-      let eventType = "";
-      let eventData = "";
+      buffer += decoder.decode(value, { stream: true });
 
-      for (const line of part.split("\n")) {
-        if (line.startsWith("event: ")) {
-          eventType = line.slice(7).trim();
-        } else if (line.startsWith("data: ")) {
-          eventData = line.slice(6);
+      // SSE events are separated by double newlines
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() || "";
+
+      for (const part of parts) {
+        if (!part.trim()) continue;
+
+        let eventType = "";
+        let eventData = "";
+
+        for (const line of part.split("\n")) {
+          if (line.startsWith("event:")) {
+            eventType = line.substring(6).trim();
+          } else if (line.startsWith("data:")) {
+            eventData += line.substring(line.startsWith("data: ") ? 6 : 5) + "\n";
+          }
         }
-      }
 
-      if (eventType && eventData) {
-        try {
-          const parsed = JSON.parse(eventData);
-          onEvent({ type: eventType, data: parsed } as StreamEvent);
-        } catch {
-          // skip malformed events
+        if (eventType && eventData) {
+          try {
+            // Trim trailing newline for parsing just in case
+            const parsed = JSON.parse(eventData.trimEnd());
+            onEvent({ type: eventType, data: parsed } as StreamEvent);
+          } catch {
+            // skip malformed events
+          }
         }
       }
     }
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
