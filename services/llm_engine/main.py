@@ -312,8 +312,8 @@ def classify_intent(query):
         prompt = f"""
             Decide if the user query needs specific facts from the company's internal knowledge base or if it is a general interaction.
 
-            'knowledge': Questions about Alphabet and its funded companies. Questions relating to Google and its products or updates.
-            'general': Greetings, identity questions (who are you), small talk like hey, hi.
+            'knowledge': Questions ONLY about Alphabet, Google, and their funded companies, products, or updates.
+            'general': Greetings, identity questions, small talk, or questions about completely unrelated topics and other companies (like Amazon, Apple, etc.).
 
             User Query: {query}
 
@@ -333,6 +333,9 @@ def classify_intent(query):
             return None
 
         intent = choices[0].message.content.strip().lower()
+        # Remove any surrounding quotes or punctuation that the LLM might have added
+        import re
+        intent = re.sub(r"[^a-z]", "", intent)
 
         if intent not in ("knowledge", "general"):
             log(f"classify_intent invalid_intent={intent}")
@@ -950,8 +953,10 @@ GENERAL_REPLY_SYSTEM_PROMPT = (
     "Greet the user or respond to their query politely and conversationally. "
     "Use a natural, friendly tone — avoid sounding scripted or repetitive. "
     "Respond in a natural, conversational tone. When it makes sense, "
-    "continue the conversation with a relevant and engaging follow-up question "
-    "related to Alphabet, Google products, or company updates."
+    "continue the conversation by suggeting a relevant and engaging follow-up question "
+    "that the user would be interested in."
+    "Phrased naturally like 'Would you like to explore...', "
+    "'Curious about...?', or 'If you're interested, I can also tell you about...'. "
 )
 
 

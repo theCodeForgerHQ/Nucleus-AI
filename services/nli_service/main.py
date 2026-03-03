@@ -11,8 +11,8 @@ app = FastAPI()
 executor = ThreadPoolExecutor(max_workers=4)
 
 class NLIRequest(BaseModel):
-    premise: str = Field(..., max_length=2000)
-    hypothesis: str = Field(..., max_length=2000)
+    premise: str = Field(..., max_length=20000)
+    hypothesis: str = Field(..., max_length=20000)
 
 def load_model():
     if not hasattr(load_model, "state"):
