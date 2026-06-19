@@ -35,7 +35,8 @@ class HFEmbedding(BaseEmbedding):
         for i in range(0, len(texts), HF_EMBED_BATCH_SIZE):
             try:
                 out.extend(embed(texts[i:i + HF_EMBED_BATCH_SIZE]))
-            except Exception:
+            except Exception as e:
+                print(f"Error in embedding texts: {e}")
                 return []
         return out
 
@@ -56,8 +57,10 @@ def fetch_stashed_pages(conn):
                 """
             )
             return [r[0] for r in cur.fetchall()]
-    except Exception:
+    except Exception as e:
+        print(f"Error fetching stashed pages: {e}")
         return None
+
 
 def fetch_neon_chunk_hashes(conn, page_id):
     try:
@@ -71,8 +74,10 @@ def fetch_neon_chunk_hashes(conn, page_id):
                 (page_id,),
             )
             return [r[0] for r in cur.fetchall()]
-    except Exception:
+    except Exception as e:
+        print(f"Error fetching neon chunk hashes: {e}")
         return []
+
 
 def fetch_neon_image_hashes(conn, page_id):
     try:
@@ -86,8 +91,10 @@ def fetch_neon_image_hashes(conn, page_id):
                 (page_id,),
             )
             return [r[0] for r in cur.fetchall()]
-    except Exception:
+    except Exception as e:
+        print(f"Error fetching neon image hashes: {e}")
         return []
+
 
 def deactivate_neon_chunks(conn, page_id, chunk_hashes, trace_id):
     if not chunk_hashes:
@@ -103,8 +110,10 @@ def deactivate_neon_chunks(conn, page_id, chunk_hashes, trace_id):
                 (trace_id, page_id, chunk_hashes),
             )
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Error deactivating neon chunks: {e}")
         return False
+
 
 def deactivate_neon_images(conn, page_id, image_hashes, trace_id):
     if not image_hashes:
@@ -120,15 +129,16 @@ def deactivate_neon_images(conn, page_id, image_hashes, trace_id):
                 (trace_id, page_id, image_hashes),
             )
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Error deactivating neon images: {e}")
         return False
+
 
 def process_page(page_id, conn, pc):
     trace_id = str(uuid.uuid4())
     start = time.time()
     try:
         html = fetch_confluence_page(page_id, trace_id)
-        
         if not html:
             return False
 
@@ -144,7 +154,8 @@ def process_page(page_id, conn, pc):
                         table_chunks.append(fact.strip())
                         table_section_paths.append(" > ".join(t["section_path"]) if t["section_path"] else "")
 
-        except Exception:
+        except Exception as e:
+            print(f"Error extracting images or tables: {e}")
             return False
 
         try:
@@ -198,7 +209,8 @@ def process_page(page_id, conn, pc):
                         current = heading
                 section_paths.append(" > ".join(section_path))
 
-        except Exception:
+        except Exception as e:
+            print(f"Error processing markdown or semantic nodes: {e}")
             return False
 
         old_chunk_hashes = set(fetch_neon_chunk_hashes(conn, page_id))
@@ -303,7 +315,8 @@ def process_page(page_id, conn, pc):
         )
         
         return success
-    except Exception:
+    except Exception as e:
+        print(f"Error processing page {page_id}: {e}")
         record_processing_result(
             trace_id=trace_id,
             page_id=page_id,
@@ -318,6 +331,7 @@ def process_page(page_id, conn, pc):
             total_latency_ms=int((time.time() - start) * 1000),
         )
         return False
+
 
 def main():
     pc = None
@@ -343,7 +357,8 @@ def main():
                 conn.close()
 
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Error in main: {e}")
         return False
 
 if __name__ == "__main__":
